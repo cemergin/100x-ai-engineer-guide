@@ -77,6 +77,16 @@ Ch 42 (generate own)   → Run Sentence Transformers, choose embedding models
 Ch 44 (vs fine-tuning)  → When to retrieve knowledge vs bake it into weights
 ```
 
+Example — how **cost awareness** spirals through the guide:
+```
+Ch 2  (pricing)         → "GPT-4o costs $2.50/M input tokens, Claude Sonnet costs $3/M"
+Ch 12 (context as cost) → Every token in context costs money — manage it
+Ch 22 (tracking)        → Instrument your app to track cost per feature
+Ch 29 (compaction)      → How Claude Code saves money with smart summarization
+Ch 49 (engineering)     → Model routing, caching, budgets — the full cost toolkit
+Ch 57 (infrastructure)  → Self-host vs API break-even math, GPU cost optimization
+```
+
 ---
 
 ## Quick Start — Reading Paths
@@ -289,6 +299,14 @@ SECURITY:       Ch 11 (approvals) → Ch 30 (permissions) → Ch 48 (guardrails)
 
 DEPLOYMENT:     Ch 3 (API call) → Ch 6 (chat UI) → Ch 27 (harness architecture)
                 → Ch 53 (deploy apps) → Ch 55 (isolate agents) → Ch 56 (CI/CD)
+
+STREAMING:      Ch 3 (basic streamText) → Ch 6 (streaming UI with useChat)
+                → Ch 9 (streaming in agent loop) → Ch 27 (production streaming architecture)
+                → Ch 53 (deploying streaming endpoints) → Ch 59 (streaming in platform tools)
+
+COST:           Ch 2 (pricing landscape) → Ch 12 (context as cost)
+                → Ch 22 (token tracking) → Ch 29 (compaction saves money)
+                → Ch 49 (cost engineering) → Ch 57 (infrastructure cost optimization)
 ```
 
 ---

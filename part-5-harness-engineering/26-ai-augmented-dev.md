@@ -24,12 +24,13 @@ This chapter maps the landscape of AI-augmented development as it exists today. 
 
 1. Coding agents: what they are and how they differ
 2. Multi-agent delegation: Claude as project manager, workers doing tasks
-3. Stripe's Minions: one-shot end-to-end agents
-4. The self-reinforcing loop
-5. AI code review: what works and what doesn't
-6. Worktree-based parallel development
-7. The "software factory" vision
-8. Non-engineers writing code
+3. Stripe's Minions: one-shot end-to-end agents (how they work, CI feedback loop)
+4. The self-reinforcing loop (with concrete eval-improve-eval cycles)
+5. AI pair programming patterns: autocomplete vs agent vs reviewer
+6. AI code review: what works and what doesn't
+7. Worktree-based parallel development (with real workflow walkthrough)
+8. The "software factory" vision
+9. Non-engineers writing code (sales ops, finance, CX, PM examples)
 
 ### Related Chapters
 
@@ -353,7 +354,93 @@ If any verification fails, fix the issue before proceeding.
 Create a PR with a clear title and description listing all changes made.
 ```
 
-### 3.4 The Minion Success Rate
+### 3.4 How One-Shot Agents Work in Practice
+
+The term "one-shot" is slightly misleading. A Minion is one-shot *from the human's perspective* -- you give it a task and it produces a complete result. Internally, it runs a full agent loop with multiple iterations:
+
+```
+Step 1: UNDERSTAND THE TASK
+  Minion reads the task description
+  Minion searches the codebase for similar patterns
+  Minion identifies which files need to change
+
+Step 2: GATHER CONTEXT
+  Minion reads existing implementations of the same pattern
+  Minion reads the test patterns for similar features
+  Minion reads CLAUDE.md / style guides / conventions
+  → Now the Minion knows HOW to make the change
+
+Step 3: IMPLEMENT
+  Minion makes all code changes (model, migration, API, serializer)
+  Minion follows the pattern it found in Step 2
+
+Step 4: VERIFY (the CI feedback loop)
+  Minion runs `bundle exec rspec` → sees 2 test failures
+  Minion reads the failures → identifies root cause
+  Minion fixes the issue → runs tests again → all green
+  Minion runs `bundle exec rubocop` → 1 lint warning
+  Minion fixes → runs again → clean
+
+Step 5: SHIP
+  Minion creates PR with description
+  Minion links to the original ticket
+  Human reviews → merges
+```
+
+The critical piece is **Step 4: the CI feedback loop.** The Minion does not just generate code and hope it works. It runs the full test suite, reads the output, fixes failures, and iterates. This is what makes one-shot agents viable -- the tests are the safety net that turns "probably correct" into "verified correct."
+
+### 3.5 The CI Feedback Loop in Detail
+
+The CI feedback loop is the engine that makes Minions reliable. Without it, one-shot agents would have the same merge rate as copy-pasting ChatGPT output. Here is how to wire it up:
+
+```bash
+#!/bin/bash
+# scripts/minion-run.sh — One-shot agent with CI feedback loop
+
+TASK="$1"
+MAX_VERIFY_ATTEMPTS=3
+
+# Step 1: Agent implements the task
+claude --auto "$TASK"
+
+# Step 2: Verification loop
+for attempt in $(seq 1 $MAX_VERIFY_ATTEMPTS); do
+  echo "=== Verification attempt $attempt/$MAX_VERIFY_ATTEMPTS ==="
+
+  # Run the full CI suite
+  RESULT=$(pnpm test 2>&1)
+  TEST_EXIT=$?
+
+  LINT_RESULT=$(pnpm lint 2>&1)
+  LINT_EXIT=$?
+
+  BUILD_RESULT=$(pnpm build 2>&1)
+  BUILD_EXIT=$?
+
+  # If everything passes, we're done
+  if [ $TEST_EXIT -eq 0 ] && [ $LINT_EXIT -eq 0 ] && [ $BUILD_EXIT -eq 0 ]; then
+    echo "All checks pass. Creating PR."
+    gh pr create --fill
+    exit 0
+  fi
+
+  # Otherwise, feed failures back to the agent
+  FEEDBACK=""
+  [ $TEST_EXIT -ne 0 ] && FEEDBACK="$FEEDBACK\nTest failures:\n$RESULT"
+  [ $LINT_EXIT -ne 0 ] && FEEDBACK="$FEEDBACK\nLint errors:\n$LINT_RESULT"
+  [ $BUILD_EXIT -ne 0 ] && FEEDBACK="$FEEDBACK\nBuild errors:\n$BUILD_RESULT"
+
+  echo "Attempt $attempt failed. Sending feedback to agent..."
+  claude --auto "Fix these CI failures. Do not change the test expectations, fix the implementation.\n$FEEDBACK"
+done
+
+echo "Max attempts reached. Manual intervention needed."
+exit 1
+```
+
+The pattern: implement, verify, fix, verify, fix, verify. Each iteration narrows the gap between "generated code" and "correct code." At Stripe, the vast majority of Minion tasks converge within 1-2 verification rounds.
+
+### 3.6 The Minion Success Rate
 
 In practice, Minions at Stripe reportedly achieve high merge rates for pattern-following tasks. The success rate correlates directly with:
 
@@ -459,7 +546,79 @@ In the self-reinforcing loop, each cycle can improve:
 | Hooks | Add guardrails for common mistakes | "Block writes to migration files" |
 | Evals | Add new test cases for edge cases | "Test: what happens with empty input?" |
 
-### 4.4 The Flywheel Effect
+### 4.4 Concrete Eval-Improve-Eval Cycles
+
+The self-reinforcing loop is abstract until you see it in practice. Here are three real cycles that show how it works:
+
+**Cycle 1: The Missing Error Handling Pattern**
+
+```
+Week 1 Eval Results:
+  Task: "Add pagination to /api/users endpoint"
+  Agent output: Working pagination, but no error handling for invalid page params
+  Score: 6/10 (functional but not production-ready)
+
+Improvement:
+  Added to CLAUDE.md: "All API endpoints MUST validate query parameters
+  with Zod. Invalid params return 400 with a structured error response.
+  See src/lib/api-error.ts for the standard error format."
+
+Week 2 Eval Results (same task):
+  Agent output: Working pagination WITH Zod validation and proper 400 responses
+  Score: 9/10
+
+What changed: The agent now knows the convention. Every future API task
+benefits, not just pagination.
+```
+
+**Cycle 2: The Test Coverage Gap**
+
+```
+Week 3 Eval Results:
+  Tasks: 10 different "add feature" tasks
+  Observation: 7/10 tasks had tests, but tests only covered happy paths
+  Pattern: Agent writes tests that pass, but never tests error cases
+
+Improvement:
+  Updated the test skill to include:
+  "For every test file, include at minimum:
+   - Happy path test
+   - Invalid input test (null, undefined, empty string, wrong type)
+   - Edge case test (boundary values, max length)
+   - Error response test (what happens when downstream service fails)"
+
+Week 4 Eval Results (same tasks):
+  9/10 tasks now include error case tests
+  2 tasks revealed actual bugs through the new error tests
+  Score improvement: avg 7.2/10 → 8.8/10
+```
+
+**Cycle 3: The Migration Ordering Bug**
+
+```
+Week 5 Eval Results:
+  Task: "Add team_id foreign key to projects table"
+  Agent output: Created migration, but migration references teams table
+  that does not exist yet (teams table migration was in a separate PR)
+  Result: CI fails on migration check
+
+Improvement:
+  Added hook that runs before migration creation:
+  "Before creating a migration that adds a foreign key, verify the
+  referenced table exists by checking src/db/schema/. If it does not
+  exist, create both the table and the foreign key in the correct order."
+
+  Added eval task specifically for foreign key migrations.
+
+Week 6 Eval Results:
+  Agent now checks for table existence before creating FK migrations
+  When referenced table is missing, agent creates it first
+  Score: 10/10 on migration tasks (was 4/10)
+```
+
+Each cycle follows the same pattern: **measure, identify the systematic failure, fix the configuration (not the agent), measure again.** The fix is never "make the LLM smarter." The fix is always "give the LLM better instructions."
+
+### 4.5 The Flywheel Effect
 
 The self-reinforcing loop creates a flywheel:
 
@@ -479,9 +638,117 @@ Each investment makes every future agent interaction better.
 
 ---
 
-## 5. AI Code Review: What Works and What Doesn't
+## 5. AI Pair Programming Patterns
 
-### 5.1 The Current State
+Before diving into code review and worktrees, it is worth mapping out the different ways engineers work with AI. Not every task calls for the same interaction pattern.
+
+### 5.1 The Three Modes
+
+```
+MODE 1: AI AS AUTOCOMPLETE
+  You write code. AI finishes your lines and suggests the next few.
+  
+  When to use:
+  - You know exactly what you're building
+  - The code follows familiar patterns
+  - You want to type less, not think less
+  
+  Tools: Copilot tab completion, Cursor tab, Windsurf autocomplete
+  
+  Human effort:    ████████░░  (80% human, 20% AI)
+  Best for:        Boilerplate, repetitive patterns, known APIs
+
+MODE 2: AI AS AGENT
+  You describe what you want. AI plans, implements, tests, and iterates.
+  
+  When to use:
+  - The task is well-defined but tedious
+  - The task follows known patterns in your codebase
+  - You want to work on something else while the agent runs
+  
+  Tools: Claude Code, Cursor Agent, Devin, background agents
+  
+  Human effort:    ██░░░░░░░░  (20% human, 80% AI)
+  Best for:        Feature implementation, bug fixes, migrations, upgrades
+
+MODE 3: AI AS REVIEWER
+  You write code. AI reviews it for bugs, style, security, and patterns.
+  
+  When to use:
+  - After you have written code and want a second pair of eyes
+  - Before submitting a PR
+  - When reviewing someone else's PR and want AI to catch low-level issues
+  
+  Tools: Claude Code /review, AI code review in CI, Cursor inline review
+  
+  Human effort:    ██████░░░░  (60% human, 40% AI)
+  Best for:        Pre-PR review, catching security issues, enforcing conventions
+```
+
+### 5.2 When to Use Which Mode
+
+The right mode depends on your **confidence** in what needs to be built and the **complexity** of the change:
+
+```
+                        HIGH CONFIDENCE
+                    (you know exactly what to build)
+                              │
+                    ┌─────────┼─────────┐
+                    │         │         │
+                 Simple    Medium    Complex
+                    │         │         │
+              Autocomplete  Autocomplete  Agent
+              (just type)   (you lead,    (let it handle
+                            AI follows)   the tedium)
+                              │
+                        LOW CONFIDENCE
+                    (exploring, not sure of approach)
+                              │
+                    ┌─────────┼─────────┐
+                    │         │         │
+                 Simple    Medium    Complex
+                    │         │         │
+                Agent      Agent +    Plan Mode →
+              (let it try, human check  then Agent
+               iterate)   each step)  (human architects,
+                                       agent implements)
+```
+
+### 5.3 Switching Between Modes in Practice
+
+In a typical development session, you switch modes constantly:
+
+```
+9:00 — Start with AGENT mode
+  "Implement the user settings API endpoint following the pattern in
+   src/app/api/v1/profile/route.ts"
+  → Agent creates endpoint, schema, tests
+
+9:15 — Switch to REVIEWER mode
+  Read through what the agent produced
+  "Review this code for security issues and missing edge cases"
+  → AI spots a missing auth check on the PATCH route
+
+9:20 — Switch to AUTOCOMPLETE mode
+  Manually add the auth check (you know exactly what to write)
+  AI completes the boilerplate around it
+
+9:25 — Back to AGENT mode
+  "Now add the UI components for the settings page.
+   Follow the pattern in src/app/(dashboard)/profile/page.tsx"
+  → Agent creates the page, form components, loading states
+
+9:40 — Switch to REVIEWER mode
+  "/review" on the full changeset before creating PR
+```
+
+The engineers who get the most from AI are not the ones who use one mode exclusively. They are the ones who develop intuition for when to switch.
+
+---
+
+## 6. AI Code Review: What Works and What Doesn't
+
+### 6.1 The Current State
 
 AI code review is one of the most widely adopted AI-augmented development practices. But the results are mixed:
 
@@ -497,7 +764,7 @@ AI code review is one of the most widely adopted AI-augmented development practi
 - Evaluating architecture decisions
 - Catching subtle concurrency bugs
 
-### 5.2 The Human + AI Review Model
+### 6.2 The Human + AI Review Model
 
 The most effective model combines AI and human review:
 
@@ -522,7 +789,7 @@ PR Created
 
 The AI handles the tedious, pattern-based checks instantly. The human focuses on the things that require judgment and context.
 
-### 5.3 Setting Up AI Code Review
+### 6.3 Setting Up AI Code Review
 
 Using Claude Code in your CI pipeline:
 
@@ -564,7 +831,7 @@ jobs:
             --body "$(cat review.md)"
 ```
 
-### 5.4 The Remaining Gap
+### 6.4 The Remaining Gap
 
 The biggest gap in AI code review is **understanding why code exists**, not just what it does. An AI can tell you that a function lacks error handling. It cannot tell you whether the function's entire approach is wrong.
 
@@ -572,9 +839,9 @@ This gap is narrowing. As agents get access to more context (Linear tickets, Sla
 
 ---
 
-## 6. Worktree-Based Parallel Development
+## 7. Worktree-Based Parallel Development
 
-### 6.1 The 5-Agent Sprint
+### 7.1 The 5-Agent Sprint
 
 Chapter 23 introduced worktrees for running 2-3 agents in parallel. At scale, teams are running 5+ agents simultaneously on different features:
 
@@ -616,7 +883,7 @@ Monday 12:00 PM:
 
 **One engineer, five features, one morning.** This is not theoretical. This is how teams using worktree parallelism actually work.
 
-### 6.2 The Setup Script
+### 7.2 The Setup Script
 
 ```bash
 #!/bin/bash
@@ -662,7 +929,89 @@ while true; do
 done
 ```
 
-### 6.3 Managing Merge Conflicts
+### 7.3 A Real Workflow Walkthrough
+
+Let us walk through a concrete example, step by step, of how one engineer uses worktree parallelism on a Monday morning:
+
+```
+SETUP (5 minutes):
+  
+  $ cd ~/projects/acme-app
+  $ git checkout main && git pull
+
+  # Check the sprint board — 4 tickets assigned to you
+  # LIN-340: Add "last login" field to user profile
+  # LIN-341: Fix: password reset email uses wrong template
+  # LIN-342: Upgrade Sentry SDK from v7 to v8
+  # LIN-343: Add CSV export to transactions report
+
+  # Create worktrees
+  $ git worktree add ../acme-last-login -b feat/last-login main
+  $ git worktree add ../acme-fix-reset -b fix/password-reset main
+  $ git worktree add ../acme-sentry -b chore/sentry-upgrade main
+  $ git worktree add ../acme-csv-export -b feat/csv-export main
+
+LAUNCH (3 minutes):
+
+  # Terminal tab 1
+  $ cd ../acme-last-login
+  $ claude "Add a 'lastLoginAt' timestamp field to the User model.
+    Include: migration, schema update, API serialization, update on login,
+    and tests. Follow the pattern for 'createdAt' in the User model."
+
+  # Terminal tab 2
+  $ cd ../acme-fix-reset
+  $ claude "Fix: the password reset email sends the 'welcome' template
+    instead of 'password-reset'. The bug is likely in src/services/email.ts.
+    Find it, fix it, and add a test that verifies the correct template."
+
+  # Terminal tab 3
+  $ cd ../acme-sentry
+  $ claude "Upgrade @sentry/nextjs from v7 to v8. Follow the official
+    migration guide. Update all imports and configuration. Run tests."
+
+  # Terminal tab 4
+  $ cd ../acme-csv-export
+  $ claude "Add CSV export to the transactions report page. Add an
+    'Export CSV' button to src/app/(dashboard)/transactions/page.tsx.
+    Create a server action that generates the CSV. Include tests."
+
+MONITOR AND REVIEW (next 90 minutes):
+
+  9:25 — LIN-341 (password reset) finishes first. Simple fix.
+    Review the diff: 3 files changed, test verifies correct template.
+    $ cd ../acme-fix-reset && gh pr create --fill
+    Merge immediately after CI passes.
+
+  9:40 — LIN-342 (Sentry upgrade) finishes.
+    Review: 8 files changed, all import paths updated.
+    Agent ran tests — 1 failure in a Sentry mock. Agent fixed it.
+    $ gh pr create --fill
+
+  10:00 — LIN-340 (last login) finishes.
+    Review: migration, schema, API, login service, 2 test files.
+    All looks good. $ gh pr create --fill
+
+  10:15 — LIN-343 (CSV export) stuck.
+    Agent asks: "Should the CSV include all transactions or respect
+    the current date filter? Also, the transactions query uses cursor
+    pagination — should I fetch all pages for export?"
+    You answer: "Respect the current filter. Fetch all pages, up to 10k rows."
+    Agent continues and finishes by 10:45.
+
+  10:45 — All 4 PRs created. Start reviewing the larger ones in detail.
+
+CLEANUP:
+  $ cd ~/projects/acme-app
+  $ git worktree remove ../acme-last-login
+  $ git worktree remove ../acme-fix-reset
+  $ git worktree remove ../acme-sentry
+  $ git worktree remove ../acme-csv-export
+```
+
+One engineer. Four tickets. One morning. The engineer spent roughly 30 minutes on active review and 5 minutes on setup. The agents spent 45-90 minutes each on implementation.
+
+### 7.4 Managing Merge Conflicts
 
 With multiple agents working in parallel, merge conflicts are inevitable. The strategy:
 
@@ -684,9 +1033,9 @@ claude "Resolve the merge conflicts. Keep the intent of both changes. Run tests 
 
 ---
 
-## 7. The "Software Factory" Vision
+## 8. The "Software Factory" Vision
 
-### 7.1 From Individual to Organization
+### 8.1 From Individual to Organization
 
 The progression through this chapter follows a clear arc:
 
@@ -703,7 +1052,7 @@ Organization: All teams + standardized agents + automation
 
 The "software factory" vision is the organizational endpoint: a system where engineering work flows through a pipeline of human and AI agents, each handling the work they are best at.
 
-### 7.2 What This Looks Like
+### 8.2 What This Looks Like
 
 ```
 Product Manager writes spec in Linear
@@ -736,7 +1085,7 @@ Monitoring Agent (post-deploy health)
 
 Humans are in the loop at every critical decision point: spec writing, architectural review, production approval. Agents handle the implementation, testing, and verification.
 
-### 7.3 What Companies Are Actually Doing
+### 8.3 What Companies Are Actually Doing
 
 **Stripe**: Minions for pattern-following code changes. Estimated that a significant percentage of routine code changes are now agent-assisted.
 
@@ -746,7 +1095,7 @@ Humans are in the loop at every critical decision point: spec writing, architect
 
 **Vercel**: AI SDK development partially agent-driven. v0 generates UI components that feed into the development workflow.
 
-### 7.4 What Doesn't Work Yet
+### 8.4 What Doesn't Work Yet
 
 The vision is compelling. The reality has gaps:
 
@@ -760,15 +1109,15 @@ The gap is closing. But honest assessment of where agents fail is more valuable 
 
 ---
 
-## 8. Non-Engineers Writing Code
+## 9. Non-Engineers Writing Code
 
-### 8.1 The Ramp Phenomenon
+### 9.1 The Ramp Phenomenon
 
 Ramp reported that 12% of their pull requests now come from non-engineers — product managers, designers, data analysts, and operations staff who use Claude Code to write and ship code changes.
 
 This is a significant shift. It is not "non-engineers playing with code." It is non-engineers shipping production code that passes review and gets merged.
 
-### 8.2 What Non-Engineers Can Do
+### 9.2 What Non-Engineers Can Do
 
 | Task | Can Non-Engineers Do It? | Why |
 |------|-------------------------|-----|
@@ -779,17 +1128,7 @@ This is a significant shift. It is not "non-engineers playing with code." It is 
 | Refactor a database schema | No — still needs engineer | Architectural knowledge |
 | Fix a production incident | No — still needs engineer | Deep system understanding |
 
-### 8.3 What Makes It Work
-
-Non-engineers succeed at writing code when:
-
-1. **Strong CLAUDE.md**: The project conventions are explicit enough that Claude Code does the right thing
-2. **Good skills**: Common tasks have step-by-step skills that encode engineering knowledge
-3. **Comprehensive tests**: The test suite catches mistakes before they reach production
-4. **Human review**: An engineer reviews every PR, regardless of who wrote it
-5. **Limited scope**: Non-engineers handle well-defined tasks, not open-ended architecture
-
-### 8.4 The Organizational Impact
+### 9.3 The Organizational Impact
 
 When non-engineers can ship small code changes:
 
@@ -798,7 +1137,83 @@ When non-engineers can ship small code changes:
 - **The bottleneck shifts.** From "not enough engineers to do all the work" to "not enough good specifications and reviews."
 - **Everyone understands the codebase better.** Non-engineers who read and modify code develop better intuition for what is easy vs. hard.
 
-### 8.5 Setting Up for Non-Engineers
+### 9.4 Real Examples by Role
+
+Here are concrete examples of non-engineers shipping code changes at Ramp and similar companies, drawn from the patterns described in the Ramp case study:
+
+**Sales Operations**
+```
+Task: "Our enterprise deal threshold is $50K but leadership wants to raise
+      it to $75K for Q2 forecasting."
+
+What the sales ops person did:
+  1. Opened Claude Code in the reporting repo
+  2. Said: "Change the enterprise deal threshold from 50000 to 75000
+     in the deal classification logic"
+  3. Agent found src/config/deal-tiers.ts, made the change
+  4. Agent ran tests — one test expected the old threshold, agent updated it
+  5. Sales ops person created a PR, tagged the engineering lead
+  6. Merged same day
+
+Without AI: This would have been a Jira ticket, waited 3-5 days in the
+backlog, taken an engineer 15 minutes, and required a deploy cycle.
+With AI: Done in 20 minutes by the person who needed the change.
+```
+
+**Finance**
+```
+Task: "The monthly accrual report needs to include a new 'Deferred Revenue'
+      column that sums all invoices with status='pending' and date > 30 days."
+
+What the finance analyst did:
+  1. Used the "Add Report Column" skill in the reporting repo
+  2. Provided: column name, SQL logic, formatting rules
+  3. Agent added the column to the SQL query, the TypeScript type,
+     the table component, and the CSV export
+  4. Ran tests, created PR
+  5. Finance analyst verified the numbers matched their spreadsheet
+
+This is a pattern that repeats monthly: finance needs a new column,
+they know exactly what the data should be, and the AI handles the code.
+```
+
+**Customer Experience (CX)**
+```
+Task: "Customers keep asking why the 'Export' button is grayed out.
+      It should show a tooltip explaining that exports require at least
+      one row selected."
+
+What the CX team lead did:
+  1. Opened Claude Code, navigated to the dashboard repo
+  2. Said: "Add a tooltip to the disabled Export button on the
+     transactions page that says 'Select at least one transaction to export'"
+  3. Agent found the button component, added the tooltip using the
+     existing Tooltip component from the design system
+  4. CX lead previewed it locally, confirmed it looked right
+  5. Created PR, tagged frontend lead
+
+This is exactly the kind of change that fills up engineering backlogs:
+trivial to implement, high impact on customer satisfaction, but never
+quite high enough priority to schedule.
+```
+
+**Product Management**
+```
+Task: "I want to A/B test two different onboarding flows. The variant
+      should skip the 'invite team' step and go straight to the dashboard."
+
+What the PM did:
+  1. Used the "Feature Flag" skill to create a new flag in GrowthBook
+  2. Used Claude Code to add a conditional skip in the onboarding flow
+  3. Agent wrapped the 'invite team' step in a feature flag check
+  4. PM set up the experiment in GrowthBook
+  5. Created PR, engineering lead reviewed the conditional logic
+
+The PM went from hypothesis to running experiment in 2 hours instead
+of waiting for the next sprint.
+```
+
+### 9.5 What Makes It Work
 
 If you want to enable non-engineers at your company:
 
@@ -830,9 +1245,9 @@ If you are not an engineer and want to make changes:
 
 ---
 
-## 9. Putting It All Together: The AI-Augmented Development Maturity Model
+## 10. Putting It All Together: The AI-Augmented Development Maturity Model
 
-### 9.1 The Levels
+### 10.1 The Levels
 
 ```
 Level 0: No AI
@@ -867,13 +1282,13 @@ Level 5: Self-Improving System
   Typical tools: Eval pipelines, automated CLAUDE.md improvements
 ```
 
-### 9.2 Where Most Teams Are
+### 10.2 Where Most Teams Are
 
 As of early 2026, most teams are at Level 1-2. Leading teams (Stripe, Ramp, Anthropic) are at Level 3-4. Level 5 is emerging but not widespread.
 
 The progression is not linear. You do not need to reach Level 5. Most teams see the biggest ROI moving from Level 1 to Level 2 — that is what this guide (Parts 1-5) enables.
 
-### 9.3 The Roadmap
+### 10.3 The Roadmap
 
 ```
 This week:    Read this guide. Set up CLAUDE.md. Try Claude Code.
@@ -898,7 +1313,7 @@ Next year:    Automated eval pipelines. Agent improvement cycles.
 
 ---
 
-## 10. What Comes Next
+## 11. What Comes Next
 
 This chapter completes Phase 1, Part 5. You now have:
 

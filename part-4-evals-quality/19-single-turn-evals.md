@@ -25,6 +25,7 @@ This is where you assess the building blocks. Did the LLM pick the right tool? D
 3. Factual accuracy scoring
 4. Writing custom scorer functions
 5. Building a single-turn eval framework
+6. Evaluating retrieval & embedding quality
 
 ### Related Chapters
 
@@ -569,7 +570,7 @@ function scoreRetrieval(cases: RetrievalCase[]): {
 
 ### 4.1 The Scorer Interface
 
-Every assessment needs scorers — functions that take an input/output pair and return a score.
+Every eval needs scorers — functions that take an input/output pair and return a score.
 
 ```typescript
 // scorers/scorer-interface.ts
@@ -788,7 +789,7 @@ Return JSON: { "syntactically_valid": 0.9, "complete": 0.8, "well_structured": 0
 ### 5.1 The Complete Framework
 
 ```typescript
-// assessment-framework.ts
+// eval-framework.ts
 import OpenAI from "openai";
 import fs from "fs/promises";
 
@@ -843,7 +844,7 @@ interface Summary {
 
 // --- Framework ---
 
-class SingleTurnAssessment {
+class SingleTurnEval {
   private name: string;
   private systemUnderTest: (input: string, context?: string) => Promise<string>;
   private scorers: ScorerFn[];
@@ -1007,9 +1008,9 @@ async function main() {
     { id: "unknown-1", input: "Can I pay with Bitcoin?", expected: undefined, context: "Payment methods: credit card, debit card, PayPal." },
   ];
 
-  const runner = new SingleTurnAssessment("Customer Support Bot v1", customerBot, scorers);
+  const runner = new SingleTurnEval("Customer Support Bot v1", customerBot, scorers);
   await runner.run(cases);
-  await runner.saveResults("./assessment-results.json");
+  await runner.saveResults("./eval-results.json");
 }
 
 main();
@@ -1017,18 +1018,281 @@ main();
 
 ---
 
+## 6. Evaluating Retrieval & Embedding Quality
+
+In Chapter 14, you built semantic search with embeddings. But how do you know your retrieval is actually good? A RAG system can produce fluent, confident answers from the wrong documents. If your retrieval step fails -- returning irrelevant chunks or missing the right ones -- the LLM has no chance of producing a correct answer. This section gives you the tools to measure retrieval quality rigorously, spiraling back from Ch 14 (semantic search) and forward to Ch 42 (better embeddings).
+
+### 6.1 Retrieval Precision and Recall
+
+The same precision/recall framework from information retrieval applies directly to RAG:
+
+- **Precision@K**: Of the top K documents retrieved, what fraction are actually relevant? High precision means less noise reaching the LLM.
+- **Recall@K**: Of all the documents that *should* have been retrieved, what fraction did we actually find? High recall means we're not missing critical information.
+
+```
+Query: "What is the refund policy for enterprise customers?"
+
+Retrieved (top 5):
+  1. enterprise-pricing.md          <- Relevant
+  2. refund-policy.md               <- Relevant
+  3. enterprise-onboarding.md       <- NOT relevant
+  4. enterprise-refund-addendum.md  <- Relevant
+  5. billing-faq.md                 <- NOT relevant
+
+Ground truth relevant docs: [enterprise-pricing.md, refund-policy.md, enterprise-refund-addendum.md]
+
+Precision@5 = 3/5 = 0.60  (60% of retrieved docs are relevant)
+Recall@5    = 3/3 = 1.00  (we found all relevant docs)
+```
+
+For RAG, recall matters more than precision. A noisy result set (low precision) just wastes context tokens. A missing result set (low recall) produces wrong answers.
+
+### 6.2 Mean Reciprocal Rank (MRR)
+
+MRR measures how close the *first* relevant result is to the top. In RAG, this matters because many systems only use the top 3-5 chunks. If the right document is at position 8, the LLM might never see it.
+
+```
+MRR = 1 / rank_of_first_relevant_result
+
+Query A: first relevant at position 1 -> MRR = 1/1 = 1.00
+Query B: first relevant at position 3 -> MRR = 1/3 = 0.33
+Query C: first relevant at position 7 -> MRR = 1/7 = 0.14
+Query D: no relevant result found     -> MRR = 0.00
+
+Average MRR across all queries = (1.00 + 0.33 + 0.14 + 0.00) / 4 = 0.37
+```
+
+An MRR above 0.7 means relevant documents are usually in the top 1-2 positions. Below 0.5, your retrieval is struggling and the LLM is working with suboptimal context.
+
+### 6.3 Embedding Similarity Score Distributions
+
+Raw cosine similarity scores from embeddings need interpretation. What score means "this is a match" vs "this is noise"?
+
+```typescript
+// embedding-score-analysis.ts
+// Analyze the distribution of similarity scores to set thresholds
+
+interface ScoreDistribution {
+  relevant: number[];    // scores for known relevant pairs
+  irrelevant: number[];  // scores for known irrelevant pairs
+}
+
+function analyzeScoreDistribution(dist: ScoreDistribution): {
+  recommendedThreshold: number;
+  relevantMean: number;
+  relevantMin: number;
+  irrelevantMean: number;
+  irrelevantMax: number;
+  overlapZone: { low: number; high: number };
+} {
+  const mean = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
+
+  const relevantMean = mean(dist.relevant);
+  const relevantMin = Math.min(...dist.relevant);
+  const irrelevantMean = mean(dist.irrelevant);
+  const irrelevantMax = Math.max(...dist.irrelevant);
+
+  // The overlap zone is where relevant and irrelevant scores mix
+  const overlapLow = Math.min(relevantMin, irrelevantMax);
+  const overlapHigh = Math.max(relevantMin, irrelevantMax);
+
+  // Recommended threshold: midpoint of the overlap zone
+  const recommendedThreshold = (relevantMin + irrelevantMax) / 2;
+
+  return {
+    recommendedThreshold,
+    relevantMean,
+    relevantMin,
+    irrelevantMean,
+    irrelevantMax,
+    overlapZone: { low: overlapLow, high: overlapHigh },
+  };
+}
+
+// Usage: collect scores from your labeled eval dataset
+// then call analyzeScoreDistribution to find your threshold
+//
+// Typical ranges for text-embedding-3-small:
+//   Relevant pairs:   0.75 - 0.95
+//   Irrelevant pairs: 0.30 - 0.65
+//   Good threshold:   ~0.70
+//
+// These vary significantly by domain. Always measure on YOUR data.
+```
+
+### 6.4 Building an Eval Dataset for RAG
+
+The eval dataset is a list of queries paired with the documents that *should* be retrieved. Building this is the hardest and most important part.
+
+```typescript
+// retrieval-eval-dataset.ts
+
+interface RetrievalEvalCase {
+  id: string;
+  query: string;
+  expectedDocIds: string[];       // documents that MUST be retrieved
+  negativeDocIds?: string[];      // documents that must NOT be retrieved
+  minimumPrecision: number;       // per-case threshold
+  minimumRecall: number;
+  tags: string[];                 // e.g., ["pricing", "technical", "policy"]
+}
+
+const retrievalEvalCases: RetrievalEvalCase[] = [
+  {
+    id: "refund-enterprise",
+    query: "What is the refund policy for enterprise customers?",
+    expectedDocIds: ["refund-policy", "enterprise-terms", "enterprise-refund-addendum"],
+    negativeDocIds: ["startup-pricing", "personal-plan-faq"],
+    minimumPrecision: 0.5,
+    minimumRecall: 0.8,
+    tags: ["policy", "enterprise"],
+  },
+  {
+    id: "api-rate-limits",
+    query: "What are the API rate limits?",
+    expectedDocIds: ["api-reference-limits", "api-pricing-tiers"],
+    negativeDocIds: ["ui-performance-guide"],
+    minimumPrecision: 0.5,
+    minimumRecall: 1.0,
+    tags: ["technical", "api"],
+  },
+  {
+    id: "paraphrase-test",
+    query: "How fast can I call the API?",  // paraphrase of rate limits
+    expectedDocIds: ["api-reference-limits", "api-pricing-tiers"],
+    minimumPrecision: 0.4,
+    minimumRecall: 0.8,
+    tags: ["technical", "api", "paraphrase"],
+  },
+];
+
+// Build your dataset by:
+// 1. Collecting real user queries from production logs
+// 2. Manually labeling which documents are relevant for each query
+// 3. Including paraphrases of common queries (tests embedding robustness)
+// 4. Including adversarial queries that look similar but need different docs
+// 5. Aiming for 50-100 cases covering your main query categories
+```
+
+### 6.5 A Working Retrieval Quality Scorer
+
+This scorer takes your retrieval eval cases and produces a full report:
+
+```typescript
+// retrieval-quality-scorer.ts
+
+interface RetrievalResult {
+  docId: string;
+  score: number;
+}
+
+interface RetrievalScoreReport {
+  caseId: string;
+  precision: number;
+  recall: number;
+  mrr: number;
+  passed: boolean;
+  details: string[];
+}
+
+function scoreRetrievalQuality(
+  cases: RetrievalEvalCase[],
+  retrieveFn: (query: string, topK: number) => RetrievalResult[],
+  topK: number = 5,
+): {
+  results: RetrievalScoreReport[];
+  avgPrecision: number;
+  avgRecall: number;
+  avgMRR: number;
+  passRate: number;
+} {
+  const results: RetrievalScoreReport[] = [];
+
+  for (const evalCase of cases) {
+    const retrieved = retrieveFn(evalCase.query, topK);
+    const retrievedIds = retrieved.map((r) => r.docId);
+    const relevantSet = new Set(evalCase.expectedDocIds);
+    const negativeSet = new Set(evalCase.negativeDocIds ?? []);
+    const details: string[] = [];
+
+    // Precision@K
+    const relevantRetrieved = retrievedIds.filter((id) => relevantSet.has(id));
+    const precision = relevantRetrieved.length / retrievedIds.length;
+
+    // Recall
+    const recall =
+      evalCase.expectedDocIds.filter((id) => retrievedIds.includes(id)).length /
+      evalCase.expectedDocIds.length;
+
+    // MRR
+    const firstRelevantIdx = retrievedIds.findIndex((id) => relevantSet.has(id));
+    const mrr = firstRelevantIdx >= 0 ? 1 / (firstRelevantIdx + 1) : 0;
+
+    // Check for negative docs that should NOT appear
+    const negativeHits = retrievedIds.filter((id) => negativeSet.has(id));
+    if (negativeHits.length > 0) {
+      details.push(`Negative docs retrieved: ${negativeHits.join(", ")}`);
+    }
+
+    // Missing relevant docs
+    const missed = evalCase.expectedDocIds.filter((id) => !retrievedIds.includes(id));
+    if (missed.length > 0) {
+      details.push(`Missed relevant docs: ${missed.join(", ")}`);
+    }
+
+    const passed =
+      precision >= evalCase.minimumPrecision &&
+      recall >= evalCase.minimumRecall &&
+      negativeHits.length === 0;
+
+    results.push({ caseId: evalCase.id, precision, recall, mrr, passed, details });
+
+    const status = passed ? "PASS" : "FAIL";
+    console.log(
+      `[${status}] ${evalCase.id}: P=${precision.toFixed(2)} R=${recall.toFixed(2)} MRR=${mrr.toFixed(2)}`
+    );
+    for (const d of details) console.log(`    ${d}`);
+  }
+
+  const avg = (arr: number[]) => arr.reduce((s, v) => s + v, 0) / arr.length;
+
+  return {
+    results,
+    avgPrecision: avg(results.map((r) => r.precision)),
+    avgRecall: avg(results.map((r) => r.recall)),
+    avgMRR: avg(results.map((r) => r.mrr)),
+    passRate: results.filter((r) => r.passed).length / results.length,
+  };
+}
+```
+
+### 6.6 When to Run Retrieval Evals
+
+Run retrieval evals whenever you change:
+
+- **Embedding model** -- switching from `text-embedding-3-small` to `text-embedding-3-large` (Ch 42 covers this)
+- **Chunking strategy** -- changing chunk sizes, overlap, or splitting logic
+- **Vector store configuration** -- index parameters, similarity metric, HNSW settings
+- **Document corpus** -- adding or removing source documents
+- **Query preprocessing** -- changing how user queries are transformed before search
+
+These evals are fast (no LLM calls -- just vector lookups) and cheap. Run them in CI on every PR that touches retrieval code.
+
+---
+
 ## Summary
 
 You now have a working toolkit for single-turn evals:
 
-1. **Tool selection scoring** — Verify the LLM picks the right tool with the right arguments
-2. **Output format checking** — Check schema compliance with Zod validation
-3. **Factual accuracy scoring** — Compare output against ground truth with must-contain/must-not-contain
-4. **Retrieval quality scoring** — Measure precision, recall, and MRR for RAG systems
-5. **Custom scorer functions** — A library of reusable scorers for any need
-6. **A complete eval framework** — Run suites, aggregate results, identify failures
+1. **Tool selection scoring** -- Verify the LLM picks the right tool with the right arguments
+2. **Output format checking** -- Check schema compliance with Zod validation
+3. **Factual accuracy scoring** -- Compare output against ground truth with must-contain/must-not-contain
+4. **Retrieval quality scoring** -- Measure precision, recall, and MRR for RAG systems
+5. **Custom scorer functions** -- A library of reusable scorers for any need
+6. **A complete eval framework** -- Run suites, aggregate results, identify failures
+7. **Retrieval & embedding evals** -- Dedicated scoring for RAG pipelines with score distribution analysis and eval datasets
 
-In Chapter 20, we'll extend this to multi-turn conversations: testing agent loops, using LLM-as-judge, and assessing complex workflows where a single input/output is not enough.
+In Chapter 20, we'll extend this to multi-turn conversations: testing agent loops, using LLM-as-judge, and evaluating complex workflows where a single input/output is not enough.
 
 ---
 

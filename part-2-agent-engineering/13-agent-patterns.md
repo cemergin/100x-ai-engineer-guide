@@ -539,10 +539,77 @@ const result = await agent.run("Read the package.json and explain it");
 console.log(result.output);
 ```
 
+**How it differs from the Messages API:** The raw Anthropic SDK (Section 2.2) gives you `client.messages.create()` -- a single LLM call. You build the loop, manage state, route tool calls. The Agent SDK builds on top of that and gives you:
+- **The agent loop as a primitive.** `agent.run()` handles the think-act-observe cycle internally. You define tools and the SDK manages the iteration.
+- **Session/state management.** The SDK tracks conversation history, tool results, and turn counts across the session. You don't manually build the messages array.
+- **Structured tool registration.** Tools are first-class objects with schemas, handlers, and metadata -- not raw JSON input_schema definitions.
+- **Built-in guardrails.** Max turns, token limits, and error recovery are configuration, not code you write.
+
+Here is a more complete example showing tool registration, state, and the run loop:
+
+```typescript
+import { Agent, Tool } from "@anthropic-ai/agent-sdk";
+import { z } from "zod";
+
+// Tools are registered as objects with schema + handler
+const searchCodeTool = new Tool({
+  name: "searchCode",
+  description: "Search the codebase for files matching a pattern or content",
+  schema: z.object({
+    query: z.string().describe("Search query (regex or text)"),
+    filePattern: z.string().optional().describe("Glob pattern like '*.ts'"),
+  }),
+  handler: async ({ query, filePattern }) => {
+    const results = await codeSearch(query, filePattern);
+    return results.map((r) => `${r.file}:${r.line}: ${r.content}`).join("\n");
+  },
+});
+
+const editFileTool = new Tool({
+  name: "editFile",
+  description: "Edit a file by replacing old content with new content",
+  schema: z.object({
+    path: z.string(),
+    oldContent: z.string(),
+    newContent: z.string(),
+  }),
+  handler: async ({ path, oldContent, newContent }) => {
+    const file = await readFile(path, "utf-8");
+    if (!file.includes(oldContent)) {
+      return "ERROR: old content not found in file";
+    }
+    await writeFile(path, file.replace(oldContent, newContent));
+    return `Updated ${path}`;
+  },
+});
+
+// The agent manages the loop, state, and tool dispatch
+const agent = new Agent({
+  model: "claude-sonnet-4-20250514",
+  systemPrompt: `You are a coding agent. You can search code and edit files.
+Always search before editing to understand the context.`,
+  tools: [searchCodeTool, editFileTool],
+  maxTurns: 20,          // Stop after 20 tool-use rounds
+  maxTokens: 4096,       // Per-response token limit
+});
+
+// Run returns the final result after the full loop
+const result = await agent.run(
+  "Find the authentication middleware and add rate limiting to the /api/login endpoint"
+);
+
+console.log(result.output);         // The agent's final text response
+console.log(result.turns);          // Number of tool-use rounds executed
+console.log(result.tokenUsage);     // Total tokens used across all rounds
+```
+
+The Agent SDK is what Ramp used to build Glass (Ch 59). Its strength is that it gives you just enough structure for production agents without hiding the Claude API behind opaque abstractions. You still think in terms of tools, messages, and turns -- the SDK just handles the plumbing.
+
 **When to use Claude Agent SDK:**
-- You're building a Claude-only agent
-- You want managed agent loops with built-in best practices
-- You need session management and tool execution patterns
+- You're building a Claude-only agent and want a managed loop
+- You want structured tool registration with built-in best practices
+- You need session management without building it yourself
+- You're building a production internal tool (the Glass pattern, Ch 59)
 
 ### 2.4 OpenAI Agents SDK
 
@@ -578,15 +645,95 @@ const result = await Runner.run(agent, "Read package.json");
 console.log(result.final_output);
 ```
 
-**Notable features:**
-- Built-in handoff between agents (multi-agent)
-- Guardrails for input/output validation
-- Tracing integration
+**Handoff between agents** — the SDK's most distinctive feature. You define specialized agents and they delegate to each other:
+
+```typescript
+import { Agent, Runner } from "@openai/agents";
+
+const billingAgent = new Agent({
+  name: "Billing",
+  instructions: "You handle billing and payment questions. If the user asks about technical issues, hand off to the TechSupport agent.",
+  model: "gpt-4o",
+  tools: [getBillingInfo, createRefund],
+});
+
+const techAgent = new Agent({
+  name: "TechSupport",
+  instructions: "You handle technical issues. If the user asks about billing, hand off to the Billing agent.",
+  model: "gpt-4o",
+  tools: [checkSystemStatus, lookupErrorCode],
+});
+
+// Each agent knows about the other — handoff is a first-class primitive
+billingAgent.handoffs = [techAgent];
+techAgent.handoffs = [billingAgent];
+
+// The Runner manages the conversation across agent boundaries
+const result = await Runner.run(billingAgent, "I was charged twice and also my app is crashing");
+// The runner may start with Billing, hand off to TechSupport, and return
+console.log(result.final_output);
+```
+
+**Guardrails** — validate inputs before the agent processes them and outputs before they reach the user:
+
+```typescript
+import { Agent, InputGuardrail, OutputGuardrail } from "@openai/agents";
+
+const contentFilter: InputGuardrail = {
+  name: "content_filter",
+  execute: async (input) => {
+    // Check for prompt injection, PII, or policy violations
+    const check = await moderationAPI.check(input);
+    if (check.flagged) {
+      return { tripwire: true, reason: "Input flagged by content filter" };
+    }
+    return { tripwire: false };
+  },
+};
+
+const outputValidator: OutputGuardrail = {
+  name: "output_validator",
+  execute: async (output) => {
+    // Ensure the agent didn't hallucinate or leak sensitive data
+    if (output.includes("INTERNAL_SECRET") || output.includes("sk-")) {
+      return { tripwire: true, reason: "Output contains sensitive data" };
+    }
+    return { tripwire: false };
+  },
+};
+
+const agent = new Agent({
+  name: "SafeAgent",
+  instructions: "You are a helpful assistant.",
+  model: "gpt-4o",
+  input_guardrails: [contentFilter],
+  output_guardrails: [outputValidator],
+});
+```
+
+**Tracing** — every agent run is traced automatically. The SDK records each LLM call, tool invocation, handoff, and guardrail check:
+
+```typescript
+import { Runner, setTracingExportEndpoint } from "@openai/agents";
+
+// Send traces to OpenAI's trace viewer (or your own backend)
+setTracingExportEndpoint("https://your-tracing-backend.com/v1/traces");
+
+const result = await Runner.run(agent, "Analyze this data", {
+  runConfig: {
+    traceId: "user-session-123", // Correlate with your own IDs
+    tracingDisabled: false,
+  },
+});
+
+// Each step is visible: LLM call → tool call → guardrail check → handoff → LLM call → ...
+```
 
 **When to use OpenAI Agents SDK:**
 - You're in the OpenAI ecosystem
-- You need built-in multi-agent handoffs
-- You want opinionated defaults for agent behavior
+- You need built-in multi-agent handoffs (its strongest feature)
+- You want input/output guardrails without building them yourself
+- You want automatic tracing of agent runs
 
 ### 2.5 LangChain
 
@@ -630,7 +777,6 @@ const result = await agent.invoke({
 
 **When to use LangChain:**
 - You need document loaders and vector stores (RAG, Ch 15)
-- You need LangGraph for complex stateful workflows
 - You want a large ecosystem of pre-built integrations
 - You're building a RAG pipeline with many data sources
 
@@ -639,6 +785,118 @@ const result = await agent.invoke({
 - You want to understand exactly what's happening (many layers of abstraction)
 - You need predictable, debuggable behavior
 - You're sensitive to dependency weight
+
+### 2.5.1 LangGraph: When You Need Stateful Graph Execution
+
+LangChain gives you chains (linear sequences) and a basic ReAct agent. **LangGraph** is its sibling library for when you need something more: stateful, multi-step agents with branching logic, cycles, and persistent state.
+
+The core idea: your agent is a **graph**. Nodes are functions (LLM calls, tool executions, conditional logic). Edges define the flow. State is passed between nodes and persisted automatically.
+
+```typescript
+import { StateGraph, Annotation, END } from "@langchain/langgraph";
+import { ChatAnthropic } from "@langchain/anthropic";
+import { ToolNode } from "@langchain/langgraph/prebuilt";
+
+// 1. Define the state that flows through the graph
+const AgentState = Annotation.Root({
+  messages: Annotation({
+    reducer: (prev, next) => [...prev, ...next],
+    default: () => [],
+  }),
+});
+
+// 2. Define the nodes
+const model = new ChatAnthropic({ model: "claude-sonnet-4-20250514" }).bindTools(tools);
+
+async function callModel(state: typeof AgentState.State) {
+  const response = await model.invoke(state.messages);
+  return { messages: [response] };
+}
+
+function shouldContinue(state: typeof AgentState.State) {
+  const lastMessage = state.messages[state.messages.length - 1];
+  // If the model made tool calls, route to the tool node
+  if (lastMessage.tool_calls?.length > 0) {
+    return "tools";
+  }
+  // Otherwise, we're done
+  return END;
+}
+
+// 3. Build the graph
+const workflow = new StateGraph(AgentState)
+  .addNode("agent", callModel)
+  .addNode("tools", new ToolNode(tools))
+  .addEdge("__start__", "agent")
+  .addConditionalEdges("agent", shouldContinue)
+  .addEdge("tools", "agent"); // After tools, go back to the agent
+
+// 4. Compile and run
+const app = workflow.compile({
+  checkpointer: new MemorySaver(), // Persist state across invocations
+});
+
+const result = await app.invoke(
+  { messages: [{ role: "user", content: "Research this topic and write a report" }] },
+  { configurable: { thread_id: "session-123" } } // Resume from previous state
+);
+```
+
+**Why LangGraph over a plain loop?** Three reasons:
+1. **Persistent state.** The checkpointer saves state after every node. If the process crashes, it resumes from the last checkpoint, not from the beginning.
+2. **Branching and cycles.** Conditional edges let you build complex flows: "if the research is insufficient, go back to the search node; if complete, go to the writing node."
+3. **Human-in-the-loop.** You can add `interrupt_before` or `interrupt_after` to any node, pausing the graph for human approval before continuing.
+
+### 2.5.2 LangSmith: Tracing and Evaluation
+
+LangSmith is LangChain's observability and evaluation platform. It works with LangChain, LangGraph, or any LLM application (even those not using LangChain):
+
+```typescript
+// Enable tracing — just set environment variables
+// LANGCHAIN_TRACING_V2=true
+// LANGCHAIN_API_KEY=ls-...
+// LANGCHAIN_PROJECT=my-agent
+
+// Every LLM call, tool invocation, and chain step is automatically traced.
+// You see: input → LLM call → tool call → LLM call → output
+// With latency, token counts, and cost for each step.
+
+// LangSmith also supports evaluation datasets:
+import { Client } from "langsmith";
+
+const client = new Client();
+
+// Create a dataset of test cases
+await client.createDataset("agent-evals", {
+  description: "Test cases for our coding agent",
+});
+
+// Add examples
+await client.createExamples({
+  inputs: [
+    { query: "What files are in the project?" },
+    { query: "Fix the bug in auth.ts" },
+  ],
+  outputs: [
+    { expected: "Should list files using listDir tool" },
+    { expected: "Should read auth.ts, identify the bug, and write a fix" },
+  ],
+  datasetName: "agent-evals",
+});
+```
+
+### 2.5.3 The Trade-Off: Convenience vs Lock-In vs Abstraction Overhead
+
+| Factor | LangChain | LangGraph | Direct SDK |
+|--------|-----------|-----------|------------|
+| **Time to prototype** | Fast — many pre-built components | Medium — graph design takes thought | Slower — you build everything |
+| **Debuggability** | Hard — many abstraction layers | Medium — graph structure is explicit | Easy — you see every call |
+| **Lock-in** | High — LangChain types throughout your code | High — graph structure is LangGraph-specific | None — standard API calls |
+| **Ecosystem** | Huge — 100+ integrations | Growing — LangChain integrations work | Whatever you build |
+| **Abstraction overhead** | Significant — wrapper on wrapper | Moderate — graph primitives are clear | Zero |
+| **Best for** | RAG pipelines, document processing | Complex stateful workflows, multi-agent | Simple agents, maximum control |
+
+**The practical guideline:** Use LangChain when you need its ecosystem (document loaders, vector stores, pre-built retrievers for RAG). Use LangGraph when you need persistent state and complex flow control. Use neither when a simple loop does the job — which is more often than you think.
 
 ### 2.6 Mastra
 
@@ -1068,7 +1326,8 @@ Everything spirals.
 4. **Real agents compose patterns** -- plan at the top level, ReAct for execution, Reflexion when things fail.
 5. **Frameworks handle the protocol** (tool calling, streaming, message formats). They rarely handle memory, approvals, or context management.
 6. **Vercel AI SDK** is the sweet spot for most TypeScript agents: thin abstraction, provider flexibility.
-7. **LangChain** is best for RAG (document loaders, vector stores). Don't use it just for agent loops.
-8. **Build from scratch first** (Ch 8-12), then adopt frameworks for specific features you need.
-9. **Keep business logic framework-independent.** Use frameworks as integration layers, not foundations.
-10. **The best framework is the one you understand.** When it breaks, you need to know where to look.
+7. **LangChain** is best for RAG (document loaders, vector stores). **LangGraph** is for stateful multi-step workflows with persistent state and branching. Don't use either just for simple agent loops.
+8. **OpenAI Agents SDK** shines for multi-agent handoffs and built-in guardrails. **Claude Agent SDK** shines for managed agent loops in Claude-only systems.
+9. **Build from scratch first** (Ch 8-12), then adopt frameworks for specific features you need.
+10. **Keep business logic framework-independent.** Use frameworks as integration layers, not foundations.
+11. **The best framework is the one you understand.** When it breaks, you need to know where to look.

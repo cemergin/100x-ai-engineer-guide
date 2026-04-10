@@ -4,7 +4,7 @@
   PART: 4 — Evals & Quality
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 19 (Single-Turn Evals), Ch 9 (The Agent Loop), Ch 5 (Structured Output)
-  KEY_TOPICS: conversation testing, agent workflow assessment, LLM-as-judge, structured judge prompts, mock executors, deterministic vs LLM scoring
+  KEY_TOPICS: conversation testing, agent workflow evaluation, LLM-as-judge, structured judge prompts, mock executors, deterministic vs LLM scoring
   DIFFICULTY: Intermediate to Advanced
   LANGUAGE: TypeScript
   UPDATED: 2026-04-10
@@ -14,7 +14,7 @@
 
 > Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 19, Ch 9, Ch 5 · Difficulty: Inter to Adv · Language: TypeScript
 
-Single-turn assessments answer "did this one response look good?" But real AI systems have conversations. An agent takes multiple steps. A chatbot handles follow-up questions. A support workflow escalates from one stage to the next. You need to assess the entire journey, not just one turn.
+Single-turn evals answer "did this one response look good?" But real AI systems have conversations. An agent takes multiple steps. A chatbot handles follow-up questions. A support workflow escalates from one stage to the next. You need to evaluate the entire journey, not just one turn.
 
 This chapter introduces two critical techniques: testing multi-turn interactions end-to-end, and using LLM-as-judge when deterministic scoring isn't enough.
 
@@ -237,7 +237,7 @@ async function scoreConversation(
 ): Promise<Record<string, number>> {
   if (!expectations) return {};
 
-  // Use LLM-as-judge for conversation-level assessment
+  // Use LLM-as-judge for conversation-level evaluation
   const conversationText = turns
     .map(t => `[${t.role}]: ${t.content}`)
     .join("\n");
@@ -278,7 +278,7 @@ Return JSON: { "resolution": 0.9, "context_maintenance": 0.8, "coherence": 0.9, 
 
 Some things can't be scored deterministically. "Is this response helpful?" "Is the tone appropriate?" "Did it handle the edge case well?" You need a judge that understands nuance.
 
-The idea is simple: use a powerful LLM (like GPT-4o) to assess the output of your system. This adds cost and latency to your assessment pipeline, but it catches things that regex and keyword matching never will.
+The idea is simple: use a powerful LLM (like GPT-4o) to assess the output of your system. This adds cost and latency to your eval pipeline, but it catches things that regex and keyword matching never will.
 
 ```typescript
 // llm-judge.ts
@@ -336,7 +336,7 @@ SCORING:
 
   systemContent += `
 
-Return your assessment as JSON:
+Return your evaluation as JSON:
 {
   "score": number (0-1),
   "reasoning": "detailed explanation of the score",
@@ -728,7 +728,7 @@ async function testRefundConversation() {
 - Was the issue resolved efficiently?`
   );
 
-  console.log("\n=== Assessment ===");
+  console.log("\n=== Eval Results ===");
   console.log(`Score: ${judgment.score.toFixed(2)}`);
   console.log(`Reasoning: ${judgment.reasoning}`);
   console.log(`Strengths: ${judgment.strengths.join(", ")}`);
@@ -897,10 +897,10 @@ async function consistentJudge(
 
 ---
 
-## 5. A Complete Multi-Turn Assessment System
+## 5. A Complete Multi-Turn Eval System
 
 ```typescript
-// multi-turn-assessment-system.ts
+// multi-turn-eval-system.ts
 import OpenAI from "openai";
 import fs from "fs/promises";
 
@@ -923,7 +923,7 @@ interface MultiTurnResult {
   caseId: string;
   description: string;
   turns: { role: string; content: string }[];
-  judgeAssessment: {
+  judgeEval: {
     score: number;
     reasoning: string;
     strengths: string[];
@@ -933,9 +933,9 @@ interface MultiTurnResult {
   totalLatencyMs: number;
 }
 
-// --- The Assessment System ---
+// --- The Eval System ---
 
-class MultiTurnAssessment {
+class MultiTurnEval {
   private name: string;
   private systemPrompt: string;
   private model: string;
@@ -961,12 +961,12 @@ class MultiTurnAssessment {
 
       const status = result.passed ? "PASS" : "FAIL";
       console.log(
-        `[${status}] ${testCase.id}: score=${result.judgeAssessment.score.toFixed(2)} — ${result.judgeAssessment.reasoning.slice(0, 80)}...`
+        `[${status}] ${testCase.id}: score=${result.judgeEval.score.toFixed(2)} — ${result.judgeEval.reasoning.slice(0, 80)}...`
       );
     }
 
     const passed = results.filter(r => r.passed).length;
-    const avgScore = results.reduce((s, r) => s + r.judgeAssessment.score, 0) / results.length;
+    const avgScore = results.reduce((s, r) => s + r.judgeEval.score, 0) / results.length;
 
     const summary = {
       total: results.length,
@@ -1046,7 +1046,7 @@ Return JSON:
       caseId: testCase.id,
       description: testCase.description,
       turns,
-      judgeAssessment: {
+      judgeEval: {
         score: judgment.score ?? 0,
         reasoning: judgment.reasoning ?? "",
         strengths: judgment.strengths ?? [],
@@ -1061,7 +1061,7 @@ Return JSON:
 // --- Usage ---
 
 async function main() {
-  const assessment = new MultiTurnAssessment(
+  const evaluation = new MultiTurnEval(
     "Support Bot Conversations",
     `You are a customer support agent for Acme SaaS.
 Plans: Starter ($9/mo), Pro ($29/mo), Enterprise (contact sales).
@@ -1116,7 +1116,7 @@ Be helpful, empathetic, and concise. If you can't resolve an issue, explain why.
     },
   ];
 
-  const { results, summary } = await assessment.run(cases);
+  const { results, summary } = await evaluation.run(cases);
 
   // Save results
   await fs.writeFile(
@@ -1141,7 +1141,7 @@ You now have the tools to assess multi-turn AI interactions:
 5. **Mock executors** — Test agent workflows without calling real APIs
 6. **Bias mitigation** — Position swapping, multiple runs, and cross-model judging
 
-In Chapter 21, we'll take everything from Chapters 18-20 and turn it into a development workflow: write an assessment, run it, analyze failures, improve, repeat.
+In Chapter 21, we'll take everything from Chapters 18-20 and turn it into a development workflow: write an eval, run it, analyze failures, improve, repeat.
 
 ---
 

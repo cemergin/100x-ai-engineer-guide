@@ -1026,7 +1026,902 @@ export async function POST(req: Request) {
 
 ---
 
-## 9. Key Takeaways
+## 9. The Full Vercel AI SDK Toolkit
+
+So far in this chapter you have used `streamText` and `useChat` — the streaming pair. But the Vercel AI SDK has more tools, and this is the right place to see all of them together before you move on.
+
+### 9.1 generateText: Non-Streaming with Tool Calling
+
+Not everything needs to stream. Backend tasks, cron jobs, and API endpoints that return a final result can use `generateText`:
+
+```typescript
+import { generateText, tool } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { z } from "zod";
+
+const result = await generateText({
+  model: anthropic("claude-sonnet-4-20250514"),
+  system: "You are a helpful coding assistant.",
+  tools: {
+    getWeather: tool({
+      description: "Get the current weather for a city",
+      parameters: z.object({
+        city: z.string().describe("City name"),
+      }),
+      execute: async ({ city }) => {
+        // Call a weather API
+        const response = await fetch(
+          `https://api.weather.com/v1/current?city=${encodeURIComponent(city)}`
+        );
+        return response.json();
+      },
+    }),
+  },
+  maxSteps: 5, // Allow up to 5 tool-call rounds
+  prompt: "What's the weather in San Francisco and Tokyo?",
+});
+
+console.log(result.text);          // Final text response
+console.log(result.steps.length);  // How many steps (LLM calls) it took
+console.log(result.usage);         // { promptTokens, completionTokens, totalTokens }
+```
+
+`streamText` and `generateText` accept the same options — `tools`, `maxSteps`, `system`, `messages`. The difference is only in how the result is delivered: all at once vs token by token.
+
+### 9.2 generateObject and streamObject: Structured Output
+
+When you need structured data (not free-form text), use `generateObject` or `streamObject`. These use the model's structured output mode to guarantee the response matches a Zod schema:
+
+```typescript
+import { generateObject, streamObject } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { z } from "zod";
+
+// Non-streaming: get the entire object at once
+const { object } = await generateObject({
+  model: openai("gpt-4o-mini"),
+  schema: z.object({
+    summary: z.string().describe("One-paragraph summary"),
+    sentiment: z.enum(["positive", "negative", "neutral"]),
+    topics: z.array(z.string()).describe("Key topics mentioned"),
+    actionItems: z.array(
+      z.object({
+        task: z.string(),
+        assignee: z.string().optional(),
+        priority: z.enum(["high", "medium", "low"]),
+      })
+    ),
+  }),
+  prompt: `Analyze this meeting transcript: "${transcript}"`,
+});
+
+// object is fully typed: object.summary, object.sentiment, etc.
+console.log(object.actionItems);
+```
+
+For the streaming version — useful when the structured data is large and you want to show partial results:
+
+```typescript
+// Streaming: get partial objects as they arrive
+const { partialObjectStream } = streamObject({
+  model: openai("gpt-4o-mini"),
+  schema: z.object({
+    summary: z.string(),
+    topics: z.array(z.string()),
+  }),
+  prompt: `Analyze this document: "${document}"`,
+});
+
+for await (const partialObject of partialObjectStream) {
+  // partialObject grows as the model generates
+  // e.g., first: { summary: "The doc..." }
+  // then:  { summary: "The document covers...", topics: ["AI"] }
+  console.log(partialObject);
+}
+```
+
+This is the structured output pattern from Chapter 5, but built into the SDK with streaming support. Use `generateObject` for backend processing, `streamObject` for UI where you want progressive rendering.
+
+### 9.3 The Provider Pattern: One Codebase, Any Model
+
+Section 4.4 showed the multi-provider switch statement. The deeper point is that the Vercel AI SDK's provider pattern makes your code model-agnostic. Every provider (`@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`) returns objects that satisfy the same interface:
+
+```typescript
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { google } from "@ai-sdk/google";
+
+// The same code works with any provider
+async function analyze(model: Parameters<typeof generateText>[0]["model"], text: string) {
+  return generateText({
+    model,
+    prompt: `Analyze this text: ${text}`,
+  });
+}
+
+// Swap providers without changing business logic
+await analyze(openai("gpt-4o"), text);
+await analyze(anthropic("claude-sonnet-4-20250514"), text);
+await analyze(google("gemini-2.0-flash"), text);
+```
+
+This matters for production: you can A/B test providers, fall back when one is down, or let users choose their preferred model — all without duplicating code.
+
+### 9.4 experimental_telemetry: Observability Built In
+
+The AI SDK supports OpenTelemetry for tracing every LLM call. This is how you get observability into what your AI features are doing in production:
+
+```typescript
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+
+const result = await generateText({
+  model: openai("gpt-4o-mini"),
+  prompt: "Summarize this document...",
+  experimental_telemetry: {
+    isEnabled: true,
+    functionId: "document-summarizer",  // Identifies this call in traces
+    metadata: {
+      userId: "user-123",
+      documentId: "doc-456",
+      environment: "production",
+    },
+  },
+});
+```
+
+With telemetry enabled, every `generateText`, `streamText`, `generateObject`, and `streamObject` call emits OpenTelemetry spans. You can send these to any observability backend — Langfuse, Datadog, Honeycomb, or your own collector:
+
+```typescript
+// instrumentation.ts — set up once at app startup
+import { registerOTel } from "@vercel/otel";
+
+registerOTel({
+  serviceName: "my-ai-app",
+});
+```
+
+Each span captures:
+- Model name, provider, and parameters
+- Input tokens, output tokens, total cost
+- Latency (time to first token, total duration)
+- Tool calls made during the request
+- Custom metadata you attached
+
+This is how you answer "why is this feature slow?", "which model costs more?", and "what is the AI doing for this user?" in production. We cover observability patterns in depth in Chapter 43.
+
+---
+
+## 10. AI UX Patterns
+
+The basic chat works. Now let us make it feel like a polished product. AI interfaces have unique UX challenges that traditional web apps do not face: responses take seconds, not milliseconds. Output length is unpredictable. The model can fail or hallucinate. Users need to understand what they are paying for. This section covers the patterns that separate a prototype from a product.
+
+### 10.1 Streaming UX: Word-by-Word Response
+
+The most important AI UX pattern is streaming. Users should see text appearing word by word, not wait for the full response. The `useChat` hook handles this automatically, but you can enhance it with a blinking cursor and smooth animation:
+
+```typescript
+// components/streaming-message.tsx
+"use client";
+
+import { useEffect, useRef } from "react";
+
+interface StreamingMessageProps {
+  content: string;
+  isStreaming: boolean;
+}
+
+export function StreamingMessage({ content, isStreaming }: StreamingMessageProps) {
+  const endRef = useRef<HTMLSpanElement>(null);
+
+  // Auto-scroll as new content arrives
+  useEffect(() => {
+    if (isStreaming) {
+      endRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [content, isStreaming]);
+
+  return (
+    <div className="whitespace-pre-wrap">
+      {content}
+      {isStreaming && (
+        <span
+          ref={endRef}
+          className="inline-block w-2 h-4 bg-gray-800 animate-pulse ml-0.5 align-text-bottom"
+          aria-label="AI is typing"
+        />
+      )}
+    </div>
+  );
+}
+```
+
+Use it in your message list:
+
+```typescript
+{messages.map((message, index) => (
+  <div key={message.id} className={/* ... */}>
+    {message.role === "assistant" ? (
+      <StreamingMessage
+        content={message.content}
+        isStreaming={isLoading && index === messages.length - 1}
+      />
+    ) : (
+      <p>{message.content}</p>
+    )}
+  </div>
+))}
+```
+
+### 10.2 Loading States and Thinking Indicators
+
+Before the first token arrives, the user sees nothing. That gap -- typically 500ms to 3 seconds -- needs a loading state. There are three common patterns:
+
+```typescript
+// Pattern 1: Simple "thinking" indicator
+function ThinkingIndicator() {
+  return (
+    <div className="flex items-center gap-2 text-gray-500 p-3">
+      <div className="flex gap-1">
+        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
+        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce [animation-delay:-0.15s]" />
+        <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" />
+      </div>
+      <span className="text-sm">Thinking...</span>
+    </div>
+  );
+}
+
+// Pattern 2: Skeleton screen (for structured responses)
+function SkeletonResponse() {
+  return (
+    <div className="space-y-3 p-4 animate-pulse">
+      <div className="h-4 bg-gray-200 rounded w-3/4" />
+      <div className="h-4 bg-gray-200 rounded w-full" />
+      <div className="h-4 bg-gray-200 rounded w-5/6" />
+      <div className="h-4 bg-gray-200 rounded w-2/3" />
+    </div>
+  );
+}
+
+// Pattern 3: Extended thinking with elapsed time
+function ExtendedThinkingIndicator() {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2 text-gray-500 p-3">
+      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+      </svg>
+      <span className="text-sm">
+        {elapsed < 5 ? "Thinking..." : `Still working... (${elapsed}s)`}
+      </span>
+    </div>
+  );
+}
+```
+
+Use these in the chat based on where the user is in the stream:
+
+```typescript
+{isLoading && messages[messages.length - 1]?.role === "user" && (
+  // No assistant message yet — show thinking indicator
+  <ThinkingIndicator />
+)}
+```
+
+### 10.3 Confidence Indicators
+
+When the AI is uncertain, you should tell the user. This requires the API route to pass confidence metadata alongside the response:
+
+```typescript
+// app/api/chat/route.ts
+import { streamText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+
+export async function POST(req: Request) {
+  const { messages } = await req.json();
+
+  const result = streamText({
+    model: anthropic("claude-sonnet-4-20250514"),
+    system: `You are a helpful assistant.
+When you are not confident in your answer, start your response with [LOW_CONFIDENCE].
+When you are referencing information you cannot verify, say so explicitly.`,
+    messages,
+  });
+
+  return result.toDataStreamResponse();
+}
+```
+
+```typescript
+// components/confidence-badge.tsx
+export function ConfidenceBadge({ content }: { content: string }) {
+  const isLowConfidence = content.startsWith("[LOW_CONFIDENCE]");
+
+  if (!isLowConfidence) return null;
+
+  return (
+    <div className="flex items-center gap-1 text-amber-600 text-xs mb-2">
+      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+        <path
+          fillRule="evenodd"
+          d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z"
+          clipRule="evenodd"
+        />
+      </svg>
+      <span>The AI is less confident about this response</span>
+    </div>
+  );
+}
+```
+
+### 10.4 Error Recovery UX
+
+AI failures are different from traditional API failures. The model might time out, hit rate limits, or produce an empty response. Each needs a different recovery pattern:
+
+```typescript
+// components/error-recovery.tsx
+"use client";
+
+interface ChatErrorProps {
+  error: Error;
+  onRetry: () => void;
+  onNewMessage: () => void;
+}
+
+export function ChatError({ error, onRetry, onNewMessage }: ChatErrorProps) {
+  const errorType = classifyError(error);
+
+  return (
+    <div className="mx-4 mb-4 rounded-lg border p-4" role="alert">
+      {errorType === "rate_limit" && (
+        <div className="bg-amber-50 border-amber-200">
+          <p className="font-medium text-amber-800">Too many requests</p>
+          <p className="text-sm text-amber-700 mt-1">
+            Please wait a moment before sending another message.
+          </p>
+          <button
+            onClick={onRetry}
+            className="mt-2 text-sm text-amber-800 underline"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {errorType === "timeout" && (
+        <div className="bg-blue-50 border-blue-200">
+          <p className="font-medium text-blue-800">Response timed out</p>
+          <p className="text-sm text-blue-700 mt-1">
+            The AI took too long to respond. This can happen with complex questions.
+          </p>
+          <div className="flex gap-3 mt-2">
+            <button onClick={onRetry} className="text-sm text-blue-800 underline">
+              Retry same question
+            </button>
+            <button onClick={onNewMessage} className="text-sm text-blue-800 underline">
+              Try a simpler question
+            </button>
+          </div>
+        </div>
+      )}
+
+      {errorType === "server_error" && (
+        <div className="bg-red-50 border-red-200">
+          <p className="font-medium text-red-800">Something went wrong</p>
+          <p className="text-sm text-red-700 mt-1">
+            The AI service is temporarily unavailable.
+          </p>
+          <button onClick={onRetry} className="mt-2 text-sm text-red-800 underline">
+            Try again
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function classifyError(error: Error): "rate_limit" | "timeout" | "server_error" {
+  const msg = error.message.toLowerCase();
+  if (msg.includes("rate") || msg.includes("429")) return "rate_limit";
+  if (msg.includes("timeout") || msg.includes("aborted")) return "timeout";
+  return "server_error";
+}
+```
+
+### 10.5 Regenerate Button
+
+Let users ask for a different response when the first one is not useful:
+
+```typescript
+// In your message component
+function AssistantMessage({
+  message,
+  isLast,
+  onRegenerate,
+}: {
+  message: { id: string; content: string };
+  isLast: boolean;
+  onRegenerate: () => void;
+}) {
+  return (
+    <div className="group relative">
+      <div className="bg-gray-100 rounded-lg px-4 py-2">
+        <MessageContent content={message.content} />
+      </div>
+
+      {/* Show regenerate button on the last assistant message */}
+      {isLast && (
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity mt-1">
+          <button
+            onClick={onRegenerate}
+            className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            Regenerate
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// In your chat page, wire up the reload function
+const { messages, reload, isLoading } = useChat();
+
+// reload() resends the last user message to get a new response
+```
+
+### 10.6 Message Actions: Copy, Edit, Branch
+
+Production chat interfaces need actions beyond send and receive:
+
+```typescript
+// components/message-actions.tsx
+"use client";
+
+import { useState } from "react";
+
+interface MessageActionsProps {
+  content: string;
+  messageId: string;
+  role: "user" | "assistant";
+  onEdit?: (messageId: string, newContent: string) => void;
+  onBranch?: (messageId: string) => void;
+}
+
+export function MessageActions({
+  content,
+  messageId,
+  role,
+  onEdit,
+  onBranch,
+}: MessageActionsProps) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Copy */}
+      <button
+        onClick={handleCopy}
+        className="p-1 text-gray-400 hover:text-gray-600 rounded"
+        title="Copy to clipboard"
+      >
+        {copied ? (
+          <span className="text-green-500 text-xs">Copied</span>
+        ) : (
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+            />
+          </svg>
+        )}
+      </button>
+
+      {/* Edit (user messages only) */}
+      {role === "user" && onEdit && (
+        <button
+          onClick={() => {
+            const newContent = prompt("Edit your message:", content);
+            if (newContent && newContent !== content) {
+              onEdit(messageId, newContent);
+            }
+          }}
+          className="p-1 text-gray-400 hover:text-gray-600 rounded"
+          title="Edit message"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+            />
+          </svg>
+        </button>
+      )}
+
+      {/* Branch conversation */}
+      {onBranch && (
+        <button
+          onClick={() => onBranch(messageId)}
+          className="p-1 text-gray-400 hover:text-gray-600 rounded"
+          title="Branch from here"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M13 5l7 7-7 7M5 5l7 7-7 7"
+            />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+```
+
+To implement branching, you fork the conversation at a specific message:
+
+```typescript
+function branchConversation(messageId: string) {
+  const branchIndex = messages.findIndex((m) => m.id === messageId);
+  if (branchIndex === -1) return;
+
+  // Create a new conversation with messages up to the branch point
+  const branchedMessages = messages.slice(0, branchIndex + 1);
+  const branchId = crypto.randomUUID();
+
+  // Save the branch and switch to it
+  saveBranch(branchId, branchedMessages);
+  setActiveConversation(branchId);
+  setMessages(branchedMessages);
+}
+```
+
+### 10.7 Token and Cost Awareness UI
+
+Users should understand how much context they have used, especially in long conversations:
+
+```typescript
+// components/token-indicator.tsx
+interface TokenIndicatorProps {
+  messageCount: number;
+  estimatedTokens: number;
+  maxTokens: number;
+}
+
+export function TokenIndicator({
+  messageCount,
+  estimatedTokens,
+  maxTokens,
+}: TokenIndicatorProps) {
+  const usage = estimatedTokens / maxTokens;
+  const barColor =
+    usage < 0.5 ? "bg-green-500" :
+    usage < 0.8 ? "bg-yellow-500" :
+    "bg-red-500";
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2 text-xs text-gray-500 border-t">
+      <span>{messageCount} messages</span>
+      <div className="flex items-center gap-1.5 flex-1 max-w-[200px]">
+        <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+          <div
+            className={`h-1.5 rounded-full ${barColor} transition-all`}
+            style={{ width: `${Math.min(usage * 100, 100)}%` }}
+          />
+        </div>
+        <span>
+          {Math.round(usage * 100)}% context used
+        </span>
+      </div>
+      {usage > 0.8 && (
+        <span className="text-amber-600">
+          Consider starting a new conversation
+        </span>
+      )}
+    </div>
+  );
+}
+```
+
+Place this above or below the input area so users always know where they stand.
+
+### 10.8 Multi-Modal Input UX
+
+Modern chat interfaces need to handle more than text. Here is a file upload pattern using the Vercel AI SDK:
+
+```typescript
+// components/multi-modal-input.tsx
+"use client";
+
+import { useChat } from "@ai-sdk/react";
+import { useRef, useState } from "react";
+
+export function MultiModalInput() {
+  const { input, handleInputChange, handleSubmit, isLoading } = useChat();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachments, setAttachments] = useState<File[]>([]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (attachments.length > 0) {
+      // Convert files to data URLs for the API
+      const fileContents = await Promise.all(
+        attachments.map(async (file) => {
+          const buffer = await file.arrayBuffer();
+          const base64 = Buffer.from(buffer).toString("base64");
+          return {
+            type: file.type.startsWith("image/") ? "image" as const : "file" as const,
+            name: file.name,
+            mimeType: file.type,
+            data: base64,
+          };
+        })
+      );
+
+      // Send with experimental_attachments
+      handleSubmit(e, { experimental_attachments: attachments });
+      setAttachments([]);
+    } else {
+      handleSubmit(e);
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter((item) => item.type.startsWith("image/"));
+
+    if (imageItems.length > 0) {
+      e.preventDefault();
+      const files = imageItems
+        .map((item) => item.getAsFile())
+        .filter((f): f is File => f !== null);
+      setAttachments((prev) => [...prev, ...files]);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="p-4 border-t">
+      {/* Attachment preview */}
+      {attachments.length > 0 && (
+        <div className="flex gap-2 mb-2">
+          {attachments.map((file, i) => (
+            <div key={i} className="relative group">
+              {file.type.startsWith("image/") ? (
+                <img
+                  src={URL.createObjectURL(file)}
+                  alt={file.name}
+                  className="w-16 h-16 object-cover rounded"
+                />
+              ) : (
+                <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-600">
+                  {file.name.split(".").pop()?.toUpperCase()}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100"
+              >
+                x
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="p-3 text-gray-500 hover:text-gray-700"
+          title="Attach file"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+            />
+          </svg>
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          accept="image/*,.pdf,.txt,.csv"
+          multiple
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            setAttachments((prev) => [...prev, ...files]);
+          }}
+        />
+        <input
+          value={input}
+          onChange={handleInputChange}
+          onPaste={handlePaste}
+          placeholder="Type a message or paste an image..."
+          className="flex-1 p-3 border rounded-lg"
+          disabled={isLoading}
+        />
+        <button
+          type="submit"
+          disabled={isLoading || (!input.trim() && attachments.length === 0)}
+          className="px-6 py-3 bg-blue-600 text-white rounded-lg disabled:opacity-50"
+        >
+          Send
+        </button>
+      </div>
+    </form>
+  );
+}
+```
+
+### 10.9 Feedback Collection
+
+Thumbs up/down on AI responses is the simplest and most valuable feedback mechanism. It feeds directly into evals (Ch 18-21):
+
+```typescript
+// components/feedback-buttons.tsx
+"use client";
+
+import { useState } from "react";
+
+interface FeedbackButtonsProps {
+  messageId: string;
+  conversationId: string;
+}
+
+export function FeedbackButtons({ messageId, conversationId }: FeedbackButtonsProps) {
+  const [feedback, setFeedback] = useState<"good" | "bad" | null>(null);
+  const [showReason, setShowReason] = useState(false);
+
+  async function submitFeedback(type: "good" | "bad", reason?: string) {
+    setFeedback(type);
+
+    await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messageId,
+        conversationId,
+        feedback: type,
+        reason,
+        timestamp: new Date().toISOString(),
+      }),
+    });
+  }
+
+  if (feedback && !showReason) {
+    return (
+      <span className="text-xs text-gray-400">
+        {feedback === "good" ? "Thanks for the feedback" : "Thanks, we'll improve"}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      {!feedback && (
+        <>
+          <button
+            onClick={() => submitFeedback("good")}
+            className="p-1 text-gray-400 hover:text-green-600 rounded"
+            title="Good response"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"
+              />
+            </svg>
+          </button>
+          <button
+            onClick={() => {
+              setFeedback("bad");
+              setShowReason(true);
+            }}
+            className="p-1 text-gray-400 hover:text-red-600 rounded"
+            title="Bad response"
+          >
+            <svg className="w-4 h-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"
+              />
+            </svg>
+          </button>
+        </>
+      )}
+
+      {showReason && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const form = e.target as HTMLFormElement;
+            const reason = (form.elements.namedItem("reason") as HTMLInputElement).value;
+            submitFeedback("bad", reason);
+            setShowReason(false);
+          }}
+          className="flex gap-2 ml-2"
+        >
+          <input
+            name="reason"
+            placeholder="What was wrong?"
+            className="text-xs border rounded px-2 py-1 w-48"
+            autoFocus
+          />
+          <button type="submit" className="text-xs text-blue-600 hover:underline">
+            Send
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              submitFeedback("bad");
+              setShowReason(false);
+            }}
+            className="text-xs text-gray-400 hover:underline"
+          >
+            Skip
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+```
+
+The API route to store feedback:
+
+```typescript
+// app/api/feedback/route.ts
+import { z } from "zod";
+
+const FeedbackSchema = z.object({
+  messageId: z.string(),
+  conversationId: z.string(),
+  feedback: z.enum(["good", "bad"]),
+  reason: z.string().optional(),
+  timestamp: z.string(),
+});
+
+export async function POST(req: Request) {
+  const body = await req.json();
+  const parsed = FeedbackSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return new Response("Invalid feedback", { status: 400 });
+  }
+
+  // Store in your database or analytics system
+  await saveFeedback(parsed.data);
+
+  // This data feeds into your eval pipeline (Ch 18-21)
+  // Low-rated responses become eval test cases
+  // High-rated responses become examples for few-shot prompts
+
+  return new Response("OK", { status: 200 });
+}
+```
+
+Every thumbs-down with a reason becomes a potential eval test case. Over time, feedback collection is the bridge between your chat UX and your eval system -- the self-reinforcing loop from Chapter 61 starts here.
+
+---
+
+## 11. Key Takeaways
 
 1. **Chat is an illusion.** The model has no memory. You maintain history by sending all messages with every request.
 
@@ -1046,6 +1941,6 @@ export async function POST(req: Request) {
 
 ## What's Next
 
-You've built a text-based chat interface. But LLMs can do more than text.
+You've built a text-based chat interface with production-grade UX patterns. But LLMs can do more than text.
 
-In **Chapter 7: Multimodal AI**, you'll add vision (analyzing images), image generation, and audio capabilities to your applications. The chat interface you just built becomes the foundation for a multimodal experience.
+In **Chapter 7: Multimodal AI**, you'll add vision (analyzing images), image generation, and audio capabilities to your applications. The chat interface you just built -- with its streaming, feedback collection, and multi-modal input -- becomes the foundation for a multimodal experience.

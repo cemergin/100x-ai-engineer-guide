@@ -114,7 +114,29 @@ Glass collapses all of these to zero: no configuration, tools already connected 
 
 ## 2. Architecture: Agent SDK + Tool Connectors + Memory + UI
 
-### 2.1 The Agent Core
+### 2.1 Why the Agent SDK, Not the Messages API
+
+Glass is built on Anthropic's Agent SDK, not on raw `client.messages.create()` calls. The distinction matters for platform-scale tools:
+
+**The Messages API** (`@anthropic-ai/sdk`) gives you one primitive: send messages, get a response. You build everything else:
+- You write the while-loop that iterates on tool calls
+- You manage the messages array (append assistant responses, tool results)
+- You handle tool routing (which function handles which tool_use block)
+- You track token usage, turn counts, and termination conditions
+- You implement error recovery when a tool call fails mid-loop
+
+This is fine for learning (Ch 8-9) and for simple use cases. But when you are building a platform with 30+ tools, multiple user roles, session persistence, and streaming to a WebSocket -- the boilerplate adds up fast.
+
+**The Agent SDK** (`@anthropic-ai/agent-sdk`) builds on the Messages API and gives you:
+- **A managed agent loop.** Call `agent.run()` and the SDK handles the think-act-observe cycle, including retries on transient failures.
+- **Structured tool registration.** Tools are first-class objects with typed schemas and handlers, not raw JSON input_schema definitions that you match by name in a switch statement.
+- **Session state.** The SDK tracks conversation history, tool results, and turn metadata. You don't manually build and manage the messages array.
+- **Streaming built in.** The SDK streams text chunks and tool-call events to your UI without you wiring up the SSE/WebSocket plumbing.
+- **Guardrails as config.** Max turns, token budgets, and timeout handling are configuration options, not code you write and debug.
+
+For Glass, this meant the four-person team could focus on what mattered -- the 30+ tool connectors, the SSO integration, the multi-pane UI -- instead of re-implementing agent loop mechanics.
+
+### 2.2 The Agent Core
 
 The heart of any internal AI tool is the agent loop. We build on the Anthropic Agent SDK because it provides the loop, tool calling, and streaming out of the box.
 
@@ -316,7 +338,7 @@ class PlatformAgent {
 }
 ```
 
-### 2.2 The Memory Provider
+### 2.3 The Memory Provider
 
 Internal tools need memory that persists across sessions. The user should be able to say "remember that the Q4 dashboard uses the new metric definitions" and have the tool recall that in future sessions.
 
@@ -419,7 +441,7 @@ class VectorMemoryProvider implements MemoryProvider {
 }
 ```
 
-### 2.3 Tool Connectors
+### 2.4 Tool Connectors
 
 Each external service gets a connector. The connector handles authentication, rate limiting, error handling, and data formatting. The user never sees any of this.
 
@@ -541,7 +563,7 @@ function createSalesforceConnector(
 }
 ```
 
-### 2.4 SSO-Driven Tool Discovery
+### 2.5 SSO-Driven Tool Discovery
 
 The key innovation: tools are not configured by users. They are *discovered* from SSO.
 

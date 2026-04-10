@@ -14,7 +14,7 @@
 
 > Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 19-20, Ch 4 · Difficulty: Inter to Adv · Language: TypeScript
 
-You have scoring functions (Ch 19). You have LLM-as-judge (Ch 20). Now what? You use them to *drive* development. Just like TDD says "write the test first, then write the code," eval-driven development says "write the assessment first, then improve the prompt/retrieval/model until the scores pass."
+You have scoring functions (Ch 19). You have LLM-as-judge (Ch 20). Now what? You use them to *drive* development. Just like TDD says "write the test first, then write the code," eval-driven development says "write the eval first, then improve the prompt/retrieval/model until the scores pass."
 
 This is the workflow that separates professional AI engineering from prompt-and-pray. Every change you make is measured. Every improvement is proven. Every regression is caught. It's the closest thing we have to automated testing for AI systems.
 
@@ -47,13 +47,13 @@ Write Eval → Run → Analyze Failures → Hypothesize → Change → Re-run �
 ```
 
 ```typescript
-// assessment-loop.ts
+// eval-loop.ts
 import OpenAI from "openai";
 import fs from "fs/promises";
 
 const openai = new OpenAI();
 
-// --- The Assessment Runner (from Ch 19, simplified) ---
+// --- The Eval Runner (from Ch 19, simplified) ---
 
 interface TestCase {
   id: string;
@@ -84,7 +84,7 @@ interface RunResult {
   config: Record<string, unknown>;
 }
 
-async function runAssessment(
+async function runEval(
   experimentName: string,
   systemPrompt: string,
   cases: TestCase[],
@@ -143,7 +143,7 @@ async function runAssessment(
 ### 1.2 Running the Loop
 
 ```typescript
-// assessment-loop-example.ts
+// eval-loop-example.ts
 
 async function iteratePrompt() {
   const cases: TestCase[] = [
@@ -181,7 +181,7 @@ async function iteratePrompt() {
 
   // --- Iteration 1: Baseline prompt ---
   console.log("\n=== Iteration 1: Baseline ===");
-  const v1 = await runAssessment(
+  const v1 = await runEval(
     "v1-baseline",
     "You are a helpful customer support agent. Answer questions about our product.",
     cases,
@@ -191,7 +191,7 @@ async function iteratePrompt() {
 
   // --- Iteration 2: Add context grounding ---
   console.log("\n=== Iteration 2: Grounded ===");
-  const v2 = await runAssessment(
+  const v2 = await runEval(
     "v2-grounded",
     `You are a customer support agent for Acme SaaS.
 
@@ -207,7 +207,7 @@ RULES:
 
   // --- Iteration 3: Add few-shot examples ---
   console.log("\n=== Iteration 3: Few-shot ===");
-  const v3 = await runAssessment(
+  const v3 = await runEval(
     "v3-fewshot",
     `You are a customer support agent for Acme SaaS.
 
@@ -391,7 +391,7 @@ Return JSON:
 
 ### 3.1 What Is It?
 
-The Ralph pattern (named after a pattern observed in Nelo's engineering Slack) is the AI-assisted iteration loop: you write the assessment, then ask AI to iterate on the prompt/code until the assessments pass. It's the AI equivalent of "make the tests green."
+The Ralph pattern (named after a pattern observed in Nelo's engineering Slack) is the AI-assisted iteration loop: you write the eval, then ask AI to iterate on the prompt/code until the evals pass. It's the AI equivalent of "make the tests green."
 
 ```typescript
 // ralph-pattern.ts
@@ -421,8 +421,8 @@ async function ralphLoop(
   for (let i = 0; i < config.maxIterations; i++) {
     console.log(`\n--- Ralph Iteration ${i + 1}/${config.maxIterations} ---`);
 
-    // Run assessment
-    const result = await runAssessment(
+    // Run eval
+    const result = await runEval(
       `ralph-iter-${i + 1}`,
       currentPrompt,
       cases,
@@ -806,7 +806,7 @@ async function evalDrivenWorkflow() {
   console.log(`Metrics: ${spec.metrics.map(m => m.name).join(", ")}\n`);
 
   // Iteration 1: Minimal prompt
-  const v1 = await runAssessment("v1-minimal", "You are a helpful assistant.", cases, scorers, { iteration: 1 });
+  const v1 = await runEval("v1-minimal", "You are a helpful assistant.", cases, scorers, { iteration: 1 });
   console.log(`\nv1 pass rate: ${(v1.passRate * 100).toFixed(1)}%`);
 
   // Analyze and improve
@@ -814,7 +814,7 @@ async function evalDrivenWorkflow() {
   console.log(`Failure patterns: ${patterns1.map(p => p.pattern).join(", ")}`);
 
   // Iteration 2: Add grounding rules
-  const v2 = await runAssessment(
+  const v2 = await runEval(
     "v2-grounded",
     `You are a customer support agent for Acme SaaS.
 
@@ -830,7 +830,7 @@ RULES:
   console.log(`\nv2 pass rate: ${(v2.passRate * 100).toFixed(1)}%`);
 
   // Iteration 3: Add few-shot + formatting
-  const v3 = await runAssessment(
+  const v3 = await runEval(
     "v3-fewshot",
     `You are a customer support agent for Acme SaaS.
 
@@ -889,16 +889,16 @@ evalDrivenWorkflow();
 
 Eval-driven development is the AI equivalent of TDD:
 
-1. **Write assessments first** — Define what "good" looks like before writing the prompt
+1. **Write evals first** — Define what "good" looks like before writing the prompt
 2. **Run and analyze** — Every iteration is measured, failures are grouped by pattern
 3. **Improve systematically** — Each change targets a specific failure pattern
-4. **The Ralph pattern** — Let AI iterate on the prompt until assessments pass
+4. **The Ralph pattern** — Let AI iterate on the prompt until evals pass
 5. **Track experiments** — Name, store, and compare every iteration
-6. **Never ship without passing** — The assessments are your deployment gate
+6. **Never ship without passing** — The evals are your deployment gate
 
-This workflow applies to everything: prompt improvements, retrieval optimization, model changes, tool description tweaks. Whatever you're changing, write the assessment first, measure, improve, repeat.
+This workflow applies to everything: prompt improvements, retrieval optimization, model changes, tool description tweaks. Whatever you're changing, write the eval first, measure, improve, repeat.
 
-In Chapter 22, we'll instrument your AI system with telemetry and tracing so you can run these assessments in production.
+In Chapter 22, we'll instrument your AI system with telemetry and tracing so you can run these evals in production.
 
 ---
 

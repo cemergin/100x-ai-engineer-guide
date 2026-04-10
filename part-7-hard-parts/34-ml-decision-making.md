@@ -29,9 +29,12 @@ By the end, you will understand what a "model" actually is (a converter that tur
 7. When the Model Fails
 8. Updating Decision Boundaries
 9. Generalization vs Memorization
-10. The Vocabulary of ML
-11. Why Production Is Harder
-12. Connecting to Everything Else
+10. Second Example: Email Spam Classification
+11. Overfitting vs Underfitting: Concrete Illustrations
+12. The Vocabulary of ML
+13. Why Production Is Harder
+14. Why This Matters for LLMs
+15. Connecting to Everything Else
 
 ### Related Chapters
 
@@ -162,6 +165,68 @@ Fraud cases: 5 / 10
 ```
 
 Notice what we did: we turned a fuzzy human judgment ("this feels like fraud") into a structured numerical problem. Each refund request is now a **vector** of 6 numbers. If that word sounds familiar, it should — in Chapter 1, you learned that embeddings are vectors too. The idea is the same: represent something complex (a refund request, a word, a sentence) as a list of numbers.
+
+Let's add more training data to make this realistic. Real fraud detection systems train on thousands to millions of examples, but even expanding to 20 gives us a better foundation:
+
+```python
+# Extended training data — 20 examples for richer patterns
+training_data_extended = [
+    # LEGITIMATE — long-time customers, low refund rates, evidence provided
+    ([730, 156, 0.02, 18.50, 1, 35],   0),  # 2yr account, rarely refunds, has photo
+    ([1095, 89, 0.01, 42.00, 1, 52],   0),  # 3yr account, almost never refunds
+    ([365,  45, 0.04, 22.00, 0, 44],   0),  # 1yr account, low refund rate
+    ([540,  72, 0.03, 31.00, 1, 38],   0),  # 1.5yr account, low refund rate
+    ([180,  28, 0.07, 55.00, 1, 41],   0),  # 6mo account, low refund rate, has photo
+    ([820, 200, 0.02, 15.00, 1, 30],   0),  # Power user, 200+ orders, rarely refunds
+    ([450,  60, 0.05, 38.00, 1, 55],   0),  # 1.2yr, low refund, long delivery (legit complaint)
+    ([270,  40, 0.08, 65.00, 0, 70],   0),  # 9mo, low rate, very long delivery time
+    ([600, 110, 0.01, 12.00, 1, 25],   0),  # Loyal customer, cheap order, has photo
+    ([90,   15, 0.07, 28.00, 1, 48],   0),  # 3mo, active, low refund rate, has photo
+
+    # FRAUD — new accounts, high refund rates, no evidence, expensive orders
+    ([14,    3, 0.67, 85.00, 0, 28],   1),  # 2wk account, 2/3 refunded, no photo
+    ([7,     2, 1.00, 120.00, 0, 31],  1),  # 1wk account, 100% refund rate
+    ([21,    8, 0.50, 67.00, 0, 25],   1),  # 3wk account, half refunded, no photo
+    ([3,     1, 1.00, 95.00, 0, 33],   1),  # 3 day account, only order refunded
+    ([10,    5, 0.60, 78.00, 0, 30],   1),  # 10 day account, high refund rate
+    ([5,     4, 0.75, 105.00, 0, 27],  1),  # 5 day account, 3/4 refunded, expensive
+    ([28,   12, 0.42, 72.00, 0, 22],   1),  # 4wk, rapid ordering, high refund rate
+    ([12,    6, 0.50, 90.00, 0, 35],   1),  # 12 days, half refunded, expensive
+    ([2,     1, 1.00, 150.00, 0, 29],  1),  # Brand new, first order refunded, very expensive
+    ([18,    7, 0.57, 60.00, 0, 32],   1),  # 2.5wk, more than half refunded
+]
+```
+
+### 3.1 Visualizing the Decision Boundary
+
+Let's look at just two features — account age and refund rate — and see how fraud vs legitimate cases cluster. This is a simplified view (our model uses 6 features), but it builds intuition for what a "decision boundary" looks like:
+
+```
+  Refund Rate
+  1.0 |  F         F                    F = Fraud
+      |     F   F     F                 L = Legit
+  0.8 |                                 . = decision boundary
+      |  F     F        F
+  0.6 |     F     F                     The model needs to draw a line
+      | . . . . . . . . . . . . .       that separates F from L.
+  0.5 |                                 
+      |                                 Everything above the line → Fraud
+  0.4 |                                 Everything below the line → Legit
+      |                                 
+  0.2 |              L                  
+      |     L    L       L     L        
+  0.1 |  L        L  L      L          
+      |        L        L        L      
+  0.0 +---+---+---+---+---+---+---+--> Account Age (days)
+      0  100  200  300  500  700  1000
+
+  Notice: fraud clusters in the TOP-LEFT (new accounts, high refund rates)
+  Legit clusters in the BOTTOM-RIGHT (old accounts, low refund rates)
+  The dotted line is the "decision boundary" — where the model says
+  "above this = fraud, below this = legit"
+```
+
+In reality, the boundary is not a line in 2D — it is a **hyperplane** in 6-dimensional space (one dimension per feature). But the intuition is identical: the model finds a surface that separates the two classes as cleanly as possible.
 
 ---
 
@@ -571,7 +636,173 @@ The generalizer typically outperforms the memorizer on truly new data, because i
 
 ---
 
-## 10. The Vocabulary of ML
+## 10. Second Example: Email Spam Classification
+
+The DoorDash example is about fraud. But does the same pattern work for completely different problems? Let's find out with email spam classification — a different domain, different features, same structure.
+
+```python
+# Spam detection: same pattern, different data
+#
+# Input: an email
+# Output: spam (1) or not spam (0)
+# Features: measurable properties of the email
+
+# Feature definitions for each email:
+# word_count        — how many words in the email
+# link_count        — how many hyperlinks
+# exclamation_count — how many exclamation marks
+# has_unsubscribe   — does it have an unsubscribe link (1 = yes, 0 = no)
+# caps_ratio        — what fraction of letters are uppercase (0.0 to 1.0)
+# known_sender      — is the sender in the user's contacts (1 = yes, 0 = no)
+
+spam_training_data = [
+    # Features                                               Label
+    # [word_count, link_count, excl_count, unsub, caps, known]
+    ([45,   0,  0, 0, 0.03, 1],                               0),  # Short email from a contact
+    ([200,  2,  0, 0, 0.02, 1],                               0),  # Long email with links, from contact
+    ([150,  1,  1, 0, 0.04, 1],                               0),  # Newsletter from known sender
+    ([80,   0,  0, 0, 0.01, 1],                               0),  # Work email, no links
+    ([30,  15,  8, 1, 0.35, 0],                               1),  # Short, tons of links, ALL CAPS
+    ([50,  10,  5, 1, 0.25, 0],                               1),  # Many links, exclamations, unknown
+    ([20,   8, 12, 1, 0.40, 0],                               1),  # Very short, lots of !!! and CAPS
+    ([100, 20,  3, 1, 0.15, 0],                               1),  # Long spam with many links
+    ([300,  3,  0, 0, 0.02, 1],                               0),  # Long report from colleague
+    ([15,  12,  6, 1, 0.50, 0],                               1),  # Classic spam: short, all caps, links
+]
+
+X_spam = np.array([row[0] for row in spam_training_data], dtype=float)
+y_spam = np.array([row[1] for row in spam_training_data], dtype=float)
+```
+
+Look familiar? The structure is identical to the fraud detector:
+
+```
+DoorDash fraud:                    Email spam:
+  Features: account_age, ...         Features: word_count, ...
+  Labels: fraud/legit                Labels: spam/not-spam
+  Model: weighted sum                Model: weighted sum
+  Training: adjust weights           Training: adjust weights
+  Goal: generalize to new requests   Goal: generalize to new emails
+```
+
+This is the key insight of this chapter: **the pattern generalizes across domains.** Once you understand features, weights, training, and generalization, you can apply ML to any classification problem. The features change, the labels change, but the algorithm is the same.
+
+```python
+# Train a spam detector using the same approach
+np.random.seed(99)
+spam_weights = np.random.randn(6) * 0.01
+
+best_spam_weights = spam_weights.copy()
+best_spam_acc = 0.5
+
+for attempt in range(10000):
+    candidate = best_spam_weights + np.random.randn(6) * 0.01
+    predictions = (X_spam @ candidate > 0).astype(int)
+    accuracy = (predictions == y_spam).mean()
+    if accuracy > best_spam_acc:
+        best_spam_weights = candidate
+        best_spam_acc = accuracy
+
+spam_feature_names = ["word_count", "link_count", "excl_count",
+                      "has_unsub", "caps_ratio", "known_sender"]
+
+print(f"Spam detector accuracy: {best_spam_acc:.0%}")
+print(f"\nLearned weights:")
+for name, w in zip(spam_feature_names, best_spam_weights):
+    print(f"  {name}: {w:.6f}")
+
+# The model discovers:
+#   link_count: positive (more links = more spam)
+#   caps_ratio: positive (more caps = more spam)
+#   known_sender: negative (known sender = less spam)
+#   excl_count: positive (more !!! = more spam)
+#
+# Same patterns a human would notice. Learned from data.
+```
+
+---
+
+## 11. Overfitting vs Underfitting: Concrete Illustrations
+
+We touched on overfitting in Section 8, but this concept is so important it deserves its own section with concrete illustrations.
+
+### 11.1 Underfitting: The Model Is Too Simple
+
+Imagine a fraud detector that only uses one feature: order amount.
+
+```python
+# Underfitting example: using only one feature
+#
+# "If order > $50, it's fraud. Otherwise, legit."
+#
+# Training data results:
+#   $18.50 order, legit  → predicts LEGIT  ✓
+#   $85.00 order, fraud  → predicts FRAUD  ✓
+#   $42.00 order, legit  → predicts LEGIT  ✓
+#   $120.00 order, fraud → predicts FRAUD  ✓
+#   $22.00 order, legit  → predicts LEGIT  ✓
+#   $67.00 order, fraud  → predicts FRAUD  ✓
+#   $55.00 order, legit  → predicts FRAUD  ✗  ← WRONG
+#
+# Problem: $55 legit order gets flagged as fraud.
+# The model is too simple — it cannot capture the REAL pattern,
+# which involves account age, refund rate, AND order amount together.
+
+# Underfitting = the model does not have enough capacity to learn the pattern.
+# Symptoms:
+#   - Low accuracy on TRAINING data (can't even fit what it's seen)
+#   - Low accuracy on TEST data
+#   - Adding more data does NOT help (the model can't use it)
+# Fix: use more features, or a more powerful model
+```
+
+### 11.2 Overfitting: The Model Memorizes Noise
+
+Now imagine a model that memorizes every quirk of the training data.
+
+```python
+# Overfitting example: the model memorizes coincidences
+#
+# In our training data, ALL fraud cases had delivery times under 35 minutes.
+# That's a coincidence — fraudsters don't control delivery speed.
+# But an overfitting model might learn: "fast delivery = fraud"
+#
+# Training results:  100% accuracy (memorized everything, including noise)
+# Test results:      60% accuracy (the noise pattern doesn't generalize)
+#
+# The model learned:
+#   "delivery_time < 35 AND order_amount > 50 → fraud"
+#
+# But in reality, most deliveries under 35 minutes are just... fast deliveries.
+# The model mistook a COINCIDENCE in the training data for a PATTERN.
+
+# Overfitting = the model learns noise in the training data, not real patterns.
+# Symptoms:
+#   - HIGH accuracy on TRAINING data (near 100%)
+#   - LOW accuracy on TEST data (big gap between train and test)
+#   - Adding more data DOES help (dilutes the noise)
+# Fix: more training data, simpler model, regularization
+```
+
+### 11.3 The Goldilocks Zone
+
+```
+                      Training        Test
+                      Accuracy      Accuracy       Diagnosis
+                    ──────────    ──────────    ───────────────
+  Underfitting:        65%           60%         Too simple
+  Good fit:            93%           88%         Just right
+  Overfitting:         100%          65%         Memorized noise
+
+  The gap between training and test accuracy tells you everything.
+  Small gap = good generalization.
+  Large gap = overfitting.
+  Both low = underfitting.
+```
+
+---
+
+## 12. The Vocabulary of ML
 
 You have now experienced every core concept in machine learning. Let's give them proper names:
 
@@ -614,13 +845,33 @@ for term, definition in vocabulary.items():
 
 These terms will follow you through every chapter. When we say "the model overfits," you now know exactly what that means — it memorized instead of generalized. When we say "adjust the weights," you know what weights are and why they need adjusting.
 
+### Quick Reference: ML Terms in Plain English
+
+| ML Term | Plain English | Example from This Chapter |
+|---------|---------------|---------------------------|
+| Model | A formula that converts inputs to outputs | Our weighted sum that scores refund requests |
+| Features | Numbers that describe each input | Account age, refund rate, order amount |
+| Labels | The correct answers you train on | "fraud" or "legit" for each example |
+| Weights | How much each feature matters | -0.001 for account age, +2.0 for refund rate |
+| Training | Adjusting weights to reduce errors | Trying 10,000 weight combinations |
+| Inference | Using the trained model on new data | Scoring a refund request in production |
+| Loss | How wrong the model is (lower = better) | Number of incorrect predictions |
+| Accuracy | Percentage of correct predictions | "90% of test cases labeled correctly" |
+| Overfitting | Memorizing training data instead of learning patterns | 100% train accuracy, 60% test accuracy |
+| Underfitting | Model too simple to capture patterns | Using only 1 feature when you need 6 |
+| Generalization | Working well on data never seen before | Correctly scoring new refund requests |
+| Decision boundary | The dividing line between classes | Score > 0.5 = fraud, score <= 0.5 = legit |
+| Feature engineering | Choosing/creating the right input numbers | Using "refund rate" instead of raw refund count |
+| Hyperparameters | Settings you choose, not learned | The threshold value, learning rate |
+| Concept drift | When real-world patterns change over time | Fraudsters adapting their behavior |
+
 ---
 
-## 11. Why Production Is Harder
+## 13. Why Production Is Harder
 
 Our DoorDash example had 10 training examples, 6 features, and a clean binary label. Real production ML is orders of magnitude harder:
 
-### 11.1 Scale
+### 13.1 Scale
 
 ```python
 # Our toy example:
@@ -636,7 +887,7 @@ Our DoorDash example had 10 training examples, 6 features, and a clean binary la
 #   Updating in real-time as new fraud patterns emerge
 ```
 
-### 11.2 Feature Complexity
+### 13.2 Feature Complexity
 
 In our example, we hand-picked 6 obvious features. In production, feature engineering is one of the hardest parts. Which of 500 possible signals actually matter? Do you use raw values or derived ones (like "refund rate" instead of raw refund count)? Do features interact (new account + expensive order is suspicious, but old account + expensive order is not)?
 
@@ -658,7 +909,7 @@ In our example, we hand-picked 6 obvious features. In production, feature engine
 #   ... hundreds more
 ```
 
-### 11.3 The Feedback Loop
+### 13.3 The Feedback Loop
 
 Once you deploy a fraud model, it changes the system. Fraudsters adapt. They learn what triggers the model and change their behavior. The model that worked last month stops working this month because the fraud patterns shifted. This is called **concept drift**, and it means you need to continuously retrain.
 
@@ -673,7 +924,7 @@ Once you deploy a fraud model, it changes the system. Fraudsters adapt. They lea
 # ... it never ends
 ```
 
-### 11.4 Deployment and Monitoring
+### 13.4 Deployment and Monitoring
 
 A model is useless sitting on your laptop. It needs to run in production, handle thousands of requests per second, return predictions in milliseconds, and be monitored for accuracy degradation. This is the difference between "ML" and "ML engineering."
 
@@ -690,13 +941,118 @@ A model is useless sitting on your laptop. It needs to run in production, handle
 # Fallback: What happens when the model is uncertain?
 ```
 
+### 13.5 Models That Worked in Testing but Failed in Production
+
+These are real patterns that bite teams in production. Every ML engineer has at least one war story like these:
+
+```python
+# Story 1: The timezone bug
+#
+# A content recommendation model was trained on data from US users.
+# It learned that posts made between 9am-5pm get more engagement.
+# In testing (US data): 92% accuracy.
+# In production (global users): 71% accuracy.
+#
+# Why? The model learned US work hours, not universal engagement patterns.
+# Users in Tokyo, London, and Sydney had completely different peak hours.
+# The feature "time of post" was leaking geography, not measuring quality.
+
+# Story 2: The training/serving skew
+#
+# A fraud model was trained on batch data processed overnight.
+# Feature: "average order value in last 30 days" — computed from
+# a data warehouse with complete 30-day history.
+#
+# In production, the feature was computed from a streaming pipeline
+# that only had the last 7 days of data (different infrastructure).
+#
+# Training accuracy: 95%. Production accuracy: 78%.
+# Same feature name, different values. Nobody noticed for 3 weeks.
+
+# Story 3: The feedback loop trap
+#
+# An email spam filter was very aggressive — it blocked 99% of spam.
+# But it also blocked 5% of legitimate emails.
+# Users never saw the blocked legitimate emails, so they never
+# reported them as false positives.
+# The model retrained on user feedback... which said it was perfect.
+# Meanwhile, 5% of real emails were silently disappearing.
+#
+# The model was grading its own homework.
+
+# Story 4: The label leakage
+#
+# A medical diagnosis model achieved 98% accuracy on test data.
+# Suspiciously high. Investigation revealed: the training images
+# from Hospital A (which had more positive cases) had a slightly
+# different image format than Hospital B (which had more negatives).
+# The model learned to distinguish the hospitals, not the diseases.
+```
+
+The lesson: **testing accuracy is necessary but not sufficient.** A model can ace the test set and still fail catastrophically in production because of data distribution shifts, feature computation differences, feedback loops, or label leakage. This is why ML engineering is hard — the gap between "works on my laptop" and "works in production" is wider than in traditional software.
+
 ---
 
-## 12. Connecting to Everything Else
+## 14. Why This Matters for LLMs
+
+You have been using LLMs since Chapter 0. Now you can see what is happening under the hood — not the specific architecture (that comes in Chapters 36-38), but the *concepts* that make LLMs work.
+
+### 14.1 Everything You Built Here Exists in LLMs
+
+```python
+# Mapping our fraud detector concepts to LLM concepts:
+#
+# FRAUD DETECTOR              LLM
+# ─────────────              ────
+# Features (6 numbers)    →  Embeddings (4096+ numbers per token)
+# Weights (6 numbers)     →  Parameters (billions of numbers)
+# Weighted sum             →  Transformer layers (matrix multiplications)
+# Threshold (0 or 1)      →  Softmax (probability over vocabulary)
+# Training data (10 rows) →  Training corpus (trillions of tokens)
+# Random search            →  Gradient descent (much smarter search)
+# Binary output            →  Probability distribution over 100k+ tokens
+#
+# The SCALE is different. The CONCEPTS are identical.
+```
+
+### 14.2 Prediction Is the Core of Language
+
+In Chapter 0, you learned that LLMs predict the next token. Now you see what "predict" actually means: take input features (the embeddings of all previous tokens), multiply by weights (the model's parameters), and produce an output (a probability distribution over what comes next).
+
+```
+Our fraud model:
+  Input: [account_age=14, refund_rate=0.67, order_amount=85, ...]
+  Model: multiply by weights, sum, check threshold
+  Output: P(fraud) = 0.87 → predict FRAUD
+
+GPT-4 predicting the next word after "The capital of France is":
+  Input: [embed("The"), embed("capital"), embed("of"), embed("France"), embed("is")]
+  Model: multiply by weights through 120 transformer layers
+  Output: P("Paris") = 0.94, P("Lyon") = 0.02, P("the") = 0.01, ...
+          → predict "Paris"
+
+Same structure. Different scale. Different architecture. Same idea.
+```
+
+### 14.3 Overfitting and Generalization in LLMs
+
+LLMs face the same overfitting challenge. If GPT-4 memorized its training data, it would only be able to reproduce exact paragraphs it had seen. It would fail on any new question. The fact that it can answer questions about your specific codebase — which it has never seen — means it *generalized* the patterns of language rather than memorizing specific text.
+
+This is also why LLMs hallucinate. They learned patterns like "when asked a factual question, produce a confident-sounding answer." That pattern was correct 95% of the time in training. But sometimes the model applies the pattern to a question it does not actually know the answer to — and it confidently produces wrong information. The pattern generalized too aggressively.
+
+### 14.4 Why Fine-Tuning Is Just Retraining
+
+In Chapter 45, you will learn about fine-tuning — adjusting an LLM's weights on your specific data. Now you can see what this actually means: it is the same thing we did in Section 8 when we added hard cases to our training data and retrained. The weights shift. The decision boundary moves. The model learns new patterns from new data.
+
+The only difference is scale: we adjusted 6 weights on 15 examples. Fine-tuning adjusts billions of weights on thousands of examples. But the concept is identical.
+
+---
+
+## 15. Connecting to Everything Else
 
 Let's zoom out. You just built a prediction system from scratch. Here is how every component maps to the rest of this guide:
 
-### 12.1 Features Are Embeddings
+### 15.1 Features Are Embeddings
 
 In our fraud detector, we manually chose 6 features. In an LLM, the "features" for each token are its **embedding** — a vector of hundreds or thousands of numbers. In Chapter 1, you learned embeddings capture semantic meaning. Now you see *why*: those embedding dimensions are the features that the neural network uses to make predictions.
 
@@ -714,11 +1070,11 @@ In our fraud detector, we manually chose 6 features. In an LLM, the "features" f
 # Same idea. Different scale.
 ```
 
-### 12.2 Training Is What Models Do Before You Use Them
+### 15.2 Training Is What Models Do Before You Use Them
 
 In Chapter 0, you learned about training vs inference. Now you have *experienced* both. Training was the loop where we tried weights and kept the best ones. Inference was using those weights to predict on new data. GPT-4 was trained on trillions of tokens over months. When you call the API, you are doing inference.
 
-### 12.3 Decision Boundaries Become Neural Networks
+### 15.3 Decision Boundaries Become Neural Networks
 
 Our weighted sum drew a straight line (hyperplane) through the feature space. That line is the "decision boundary." In Chapter 36, you will learn that neural networks can draw *curved* boundaries — they can capture non-linear patterns that our simple model cannot. This is why neural networks are more powerful: they can learn more complex patterns.
 
@@ -734,7 +1090,7 @@ Neural network (Chapter 36):
    fuzzy zone in between."
 ```
 
-### 12.4 From Fraud to Language
+### 15.4 From Fraud to Language
 
 The jump from "is this refund fraudulent?" to "what word comes next?" is smaller than you think:
 

@@ -151,9 +151,9 @@ function cosineSimilarity(a: number[], b: number[]): number {
 Every AI system needs to be measured across four dimensions:
 
 ```typescript
-// assessment-dimensions.ts
+// eval-dimensions.ts
 
-interface AssessmentDimensions {
+interface EvalDimensions {
   quality: {
     // Does it give good answers?
     accuracy: number;      // Is the information correct?
@@ -206,7 +206,7 @@ You can't measure everything at once. Here's a prioritization framework.
 ```typescript
 // prioritization.ts
 
-interface AssessmentPriority {
+interface EvalPriority {
   metric: string;
   priority: "critical" | "high" | "medium" | "low";
   reason: string;
@@ -214,7 +214,7 @@ interface AssessmentPriority {
 }
 
 // For a RAG-based document QA system:
-const ragPriorities: AssessmentPriority[] = [
+const ragPriorities: EvalPriority[] = [
   {
     metric: "retrieval_relevance",
     priority: "critical",
@@ -261,14 +261,14 @@ const ragPriorities: AssessmentPriority[] = [
 
 ## 3. Offline vs Online Evals
 
-### 3.1 Offline Assessments
+### 3.1 Offline Evals
 
 Run before deployment against a fixed dataset. Like unit tests for AI.
 
 ```typescript
-// offline-assessment.ts
+// offline-eval.ts
 
-interface AssessmentCase {
+interface EvalCase {
   id: string;
   input: string;
   expectedOutput?: string;
@@ -276,7 +276,7 @@ interface AssessmentCase {
   scorers: string[]; // Which scoring functions to apply
 }
 
-interface AssessmentResult {
+interface EvalResult {
   caseId: string;
   scores: Record<string, number>;
   passed: boolean;
@@ -284,17 +284,17 @@ interface AssessmentResult {
   output: string;
 }
 
-interface AssessmentSuite {
+interface EvalSuite {
   name: string;
   description: string;
-  cases: AssessmentCase[];
+  cases: EvalCase[];
   thresholds: Record<string, number>; // metric -> minimum score
 }
 
-// Example: assessment suite for a customer support bot
-const supportBotSuite: AssessmentSuite = {
+// Example: eval suite for a customer support bot
+const supportBotSuite: EvalSuite = {
   name: "Customer Support Bot v2.1",
-  description: "Assesses the support bot's ability to answer common questions",
+  description: "Evaluates the support bot's ability to answer common questions",
   cases: [
     {
       id: "pricing-basic",
@@ -336,22 +336,22 @@ const supportBotSuite: AssessmentSuite = {
 };
 ```
 
-### 3.2 Online Assessments
+### 3.2 Online Evals
 
 Run in production on real traffic. Like monitoring for AI.
 
 ```typescript
-// online-assessment.ts
+// online-eval.ts
 
-interface OnlineAssessmentConfig {
-  sampleRate: number;      // What % of requests to assess (0.01 = 1%)
+interface OnlineEvalConfig {
+  sampleRate: number;      // What % of requests to evaluate (0.01 = 1%)
   metrics: string[];       // Which metrics to track
   alertThresholds: Record<string, number>; // metric -> alert if below
   windowSize: number;      // How many requests to aggregate
 }
 
-const productionConfig: OnlineAssessmentConfig = {
-  sampleRate: 0.05, // Assess 5% of production requests
+const productionConfig: OnlineEvalConfig = {
+  sampleRate: 0.05, // Evaluate 5% of production requests
   metrics: ["latency", "format_compliance", "user_satisfaction"],
   alertThresholds: {
     latency_p95: 5000,        // Alert if P95 latency > 5s
@@ -361,12 +361,12 @@ const productionConfig: OnlineAssessmentConfig = {
   windowSize: 100, // Aggregate over 100 requests
 };
 
-// Simple online assessment tracker
-class OnlineAssessmentTracker {
+// Simple online eval tracker
+class OnlineEvalTracker {
   private window: { metric: string; value: number; timestamp: number }[] = [];
-  private config: OnlineAssessmentConfig;
+  private config: OnlineEvalConfig;
 
-  constructor(config: OnlineAssessmentConfig) {
+  constructor(config: OnlineEvalConfig) {
     this.config = config;
   }
 
@@ -466,7 +466,7 @@ interface DatasetEntry {
   };
 }
 
-// Principles for building good assessment datasets:
+// Principles for building good eval datasets:
 //
 // 1. Cover the common cases (80% of queries)
 // 2. Cover the edge cases (the 20% that cause 80% of failures)
@@ -521,7 +521,7 @@ const manualDataset: DatasetEntry[] = [
 
 ### 4.2 Synthetic Dataset Generation
 
-Manual curation is time-consuming. Use an LLM to generate assessment data — then human-review the results.
+Manual curation is time-consuming. Use an LLM to generate eval data — then human-review the results.
 
 ```typescript
 // datasets/synthetic-generator.ts
@@ -628,7 +628,7 @@ main();
 
 ### 4.3 Production Data Collection
 
-The best assessment data comes from real users. Build a feedback loop.
+The best eval data comes from real users. Build a feedback loop.
 
 ```typescript
 // datasets/production-collector.ts
@@ -658,7 +658,7 @@ class ProductionCollector {
     this.samples.push(sample);
   }
 
-  // Export failures (thumbs down) as assessment cases
+  // Export failures (thumbs down) as eval cases
   exportFailures(): DatasetEntry[] {
     return this.samples
       .filter(s => s.feedback?.thumbsUp === false || (s.feedback?.rating ?? 5) <= 2)
@@ -707,9 +707,9 @@ class ProductionCollector {
 The eval mindset is different from the developer mindset. Developers think about making things work. QA engineers think about making things break.
 
 ```typescript
-// assessment-mindset.ts
+// eval-mindset.ts
 
-// The Assessment Engineer's Checklist:
+// The Eval Engineer's Checklist:
 //
 // 1. WHAT SHOULD IT DO?
 //    - Write down the behavior you expect, in detail
@@ -736,7 +736,7 @@ The eval mindset is different from the developer mindset. Developers think about
 //    - Different thresholds for different risk levels
 //    - "Good enough to ship" vs "good enough to keep running"
 
-interface AssessmentPlan {
+interface EvalPlan {
   feature: string;
   behaviors: string[];
   failureModes: string[];
@@ -745,7 +745,7 @@ interface AssessmentPlan {
   reviewCadence: string;
 }
 
-const pricingBotPlan: AssessmentPlan = {
+const pricingBotPlan: EvalPlan = {
   feature: "Pricing Q&A Bot",
   behaviors: [
     "Returns correct price for any active plan",
@@ -771,16 +771,16 @@ const pricingBotPlan: AssessmentPlan = {
 };
 ```
 
-### 5.2 The Assessment Lifecycle
+### 5.2 The Eval Lifecycle
 
 ```
 1. Define what success looks like
 2. Build a dataset (manual + synthetic)
 3. Write scorer functions
-4. Run assessments
+4. Run evals
 5. Analyze failures
 6. Improve (prompt, retrieval, model)
-7. Re-run assessments
+7. Re-run evals
 8. Ship when thresholds are met
 9. Monitor in production
 10. Add production failures to the dataset
@@ -793,17 +793,17 @@ This is the eval-driven development loop. Chapter 21 formalizes it into a comple
 
 ## 6. Your First Eval in Code
 
-Let's build a simple but complete assessment.
+Let's build a simple but complete eval.
 
 ```typescript
-// first-assessment.ts
+// first-eval.ts
 import OpenAI from "openai";
 
 const openai = new OpenAI();
 
 // --- Types ---
 
-interface AssessmentCase {
+interface EvalCase {
   id: string;
   input: string;
   expectedOutput?: string;
@@ -816,7 +816,7 @@ interface ScorerResult {
   reason: string;
 }
 
-interface AssessmentResult {
+interface EvalResult {
   caseId: string;
   output: string;
   scores: ScorerResult[];
@@ -886,9 +886,9 @@ const safetyScorer: ScorerFn = async (_input, output) => {
   };
 };
 
-// --- The Assessment Runner ---
+// --- The Eval Runner ---
 
-class AssessmentRunner {
+class EvalRunner {
   private systemUnderTest: (input: string) => Promise<string>;
   private scorers: ScorerFn[];
   private thresholds: Record<string, number>;
@@ -903,7 +903,7 @@ class AssessmentRunner {
     this.thresholds = thresholds;
   }
 
-  async runCase(testCase: AssessmentCase): Promise<AssessmentResult> {
+  async runCase(testCase: EvalCase): Promise<EvalResult> {
     const start = Date.now();
     const output = await this.systemUnderTest(testCase.input);
     const latencyMs = Date.now() - start;
@@ -930,8 +930,8 @@ class AssessmentRunner {
     };
   }
 
-  async runSuite(cases: AssessmentCase[]): Promise<{
-    results: AssessmentResult[];
+  async runSuite(cases: EvalCase[]): Promise<{
+    results: EvalResult[];
     summary: {
       total: number;
       passed: number;
@@ -941,7 +941,7 @@ class AssessmentRunner {
       avgLatencyMs: number;
     };
   }> {
-    const results: AssessmentResult[] = [];
+    const results: EvalResult[] = [];
 
     for (const testCase of cases) {
       const result = await this.runCase(testCase);
@@ -1004,15 +1004,15 @@ Answer concisely and accurately. Don't make up information.`,
     return response.choices[0].message.content ?? "";
   };
 
-  // Build the assessment
-  const runner = new AssessmentRunner(
+  // Build the eval
+  const runner = new EvalRunner(
     supportBot,
     [containsScorer, concisenessScorer, safetyScorer],
     { contains: 0.6, conciseness: 0.5, safety: 0.9 }
   );
 
   // Test cases
-  const cases: AssessmentCase[] = [
+  const cases: EvalCase[] = [
     {
       id: "pricing-starter",
       input: "How much is the Starter plan?",
@@ -1048,7 +1048,7 @@ Answer concisely and accurately. Don't make up information.`,
   // Run!
   const { summary } = await runner.runSuite(cases);
 
-  console.log("\n=== Assessment Summary ===");
+  console.log("\n=== Eval Summary ===");
   console.log(`Total: ${summary.total}`);
   console.log(`Passed: ${summary.passed} (${(summary.passRate * 100).toFixed(1)}%)`);
   console.log(`Failed: ${summary.failed}`);

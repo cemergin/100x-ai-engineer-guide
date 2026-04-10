@@ -63,17 +63,133 @@ Notice a few things:
 - Non-English text tends to use more tokens per character
 - JSON and code have their own tokenization patterns
 
-### 1.2 Why Tokens Matter for You
+### 1.2 Tokenization in Practice: Concrete Examples
+
+Let's look at some real tokenization examples to build intuition. These are from GPT-4o's tokenizer (cl100k_base/o200k_base), but other models produce similar results:
+
+**Common English words** are usually a single token:
+```
+"hello"       → ["hello"]        → 1 token
+"the"         → ["the"]          → 1 token
+"computer"    → ["computer"]     → 1 token
+"because"     → ["because"]      → 1 token
+```
+
+**Less common or longer words** get split into subwords:
+```
+"tokenization"   → ["token", "ization"]           → 2 tokens
+"embedding"      → ["embed", "ding"]              → 2 tokens
+"unprecedented"  → ["un", "precede", "nted"]      → 3 tokens
+"hallucination"  → ["hall", "ucin", "ation"]      → 3 tokens
+```
+
+**Programming terms and code** have their own patterns:
+```
+"getElementById"  → ["get", "Element", "By", "Id"]   → 4 tokens
+"async function"  → ["async", " function"]            → 2 tokens
+"console.log"     → ["console", ".", "log"]            → 3 tokens
+"npm install"     → ["npm", " install"]               → 2 tokens
+```
+
+**Non-English text** uses more tokens because the tokenizer was trained primarily on English:
+```
+"Bonjour"     → ["Bon", "jour"]          → 2 tokens (French)
+"Guten Tag"   → ["G", "uten", " Tag"]    → 3 tokens (German)
+"こんにちは"    → ["こん", "にち", "は"]     → 3 tokens (Japanese)
+"مرحبا"       → 5+ tokens                → (Arabic uses many tokens per word)
+```
+
+This has a real cost implication: if your application serves non-English users, the same conversation costs more in tokens. A Japanese conversation might use 2-3x the tokens of the same conversation in English.
+
+**Numbers and special characters** can be surprisingly expensive:
+```
+"12345"           → ["123", "45"]          → 2 tokens
+"2026-04-10"      → ["202", "6", "-", "04", "-", "10"]  → 6 tokens
+"$1,234.56"       → ["$", "1", ",", "234", ".", "56"]   → 6 tokens
+"user@email.com"  → ["user", "@", "email", ".", "com"]  → 5 tokens
+```
+
+Notice how a simple date takes 6 tokens. If you're processing thousands of records with dates, this adds up quickly.
+
+### 1.3 Why Tokens Matter for You
 
 Tokens matter for three practical reasons:
 
-**Cost.** Every API call is billed by tokens. When OpenAI charges "$3 per million input tokens" for GPT-4o, they mean it literally. A 1,000-word prompt is roughly 1,300 tokens. A back-and-forth conversation with 50 messages might be 15,000+ tokens. Understanding tokenization helps you estimate and control costs.
+**Cost.** Every API call is billed by tokens. When OpenAI charges "$2.50 per million input tokens" for GPT-4o, they mean it literally. A 1,000-word prompt is roughly 1,300 tokens. A back-and-forth conversation with 50 messages might be 15,000+ tokens. Understanding tokenization helps you estimate and control costs.
 
 **Speed.** LLMs generate tokens sequentially — one at a time. A response of 500 tokens takes roughly 5x longer to generate than a response of 100 tokens. When you ask for verbose output, you're paying in both money and latency.
 
 **Context limits.** Every model has a maximum number of tokens it can process in a single request (input + output combined). Understanding tokens helps you know when you're approaching that limit.
 
-### 1.3 How Tokenization Works (Conceptual)
+### 1.4 The Token Cost Calculator
+
+Let's walk through what real usage actually costs. This is the exercise most tutorials skip, and it's the one that will save you from a surprise bill.
+
+**Scenario 1: A simple chatbot (10 turns with GPT-4o)**
+```
+System prompt:           ~500 tokens
+User messages (10):      ~1,000 tokens (100 per message)
+Assistant responses (10): ~3,000 tokens (300 per response)
+Accumulated history:     ~4,200 input tokens (context grows each turn)
+                         ~3,000 output tokens
+
+Cost per conversation:
+  Input:  4,200 tokens × $2.50/1M  = $0.0105
+  Output: 3,000 tokens × $10.00/1M = $0.03
+  Total: ~$0.04 per conversation
+```
+
+That's 4 cents. Sounds cheap. Now multiply:
+```
+100 conversations/day   → $4/day    → $120/month
+1,000 conversations/day → $40/day   → $1,200/month
+10,000 conversations/day → $400/day → $12,000/month
+```
+
+**Scenario 2: Same chatbot with GPT-4o-mini**
+```
+  Input:  4,200 tokens × $0.15/1M  = $0.00063
+  Output: 3,000 tokens × $0.60/1M  = $0.0018
+  Total: ~$0.002 per conversation
+
+  10,000 conversations/day → $20/day → $600/month
+```
+
+That's **20x cheaper** for tasks where GPT-4o-mini's quality is sufficient. This is why model selection matters so much (more in Ch 2).
+
+**Scenario 3: A RAG-powered knowledge base assistant**
+```
+System prompt:           ~1,000 tokens
+Retrieved documents:     ~4,000 tokens (4 chunks × 1,000 tokens each)
+User question:           ~100 tokens
+Assistant response:      ~500 tokens
+
+Cost per query with Claude Sonnet 4:
+  Input:  5,100 tokens × $3.00/1M  = $0.0153
+  Output: 500 tokens × $15.00/1M   = $0.0075
+  Total: ~$0.023 per query
+  
+  50,000 queries/month = ~$1,150/month
+```
+
+**Scenario 4: Batch processing 10,000 product descriptions**
+```
+Each description: ~200 input tokens, ~300 output tokens
+
+With GPT-4o:
+  Input:  2M tokens × $2.50/1M  = $5.00
+  Output: 3M tokens × $10.00/1M = $30.00
+  Total: $35 for the batch
+
+With GPT-4o-mini:
+  Input:  2M tokens × $0.15/1M  = $0.30
+  Output: 3M tokens × $0.60/1M  = $1.80
+  Total: $2.10 for the batch
+```
+
+The takeaway: **always estimate costs before committing to a model.** A prototype that costs $5/day can become a $15,000/month production cost at scale if you don't plan.
+
+### 1.5 How Tokenization Works (Conceptual)
 
 You don't need to build a tokenizer, but understanding the concept helps.
 
@@ -94,7 +210,7 @@ After training, you end up with a vocabulary of ~50,000-100,000 tokens that effi
 
 > **Spiral note:** In Ch 37 (Tokenization Deep Dive), we'll implement BPE from scratch, explore WordPiece and SentencePiece, and build tokenization pipelines. For now, the mental model is enough.
 
-### 1.4 Token Counting in Practice
+### 1.6 Token Counting in Practice
 
 Different models use different tokenizers, so the same text produces different token counts:
 
@@ -179,9 +295,39 @@ The context window fills up faster than you think. And when it does, you have to
 
 **Cost scales with context.** You pay for every token in the context window on every request. In a conversation, you send the *entire history* with each new message. Turn 1 might cost 500 tokens. Turn 20 might cost 10,000 tokens. Turn 100 might cost 50,000 tokens. Your costs grow quadratically with conversation length.
 
-**Quality degrades with distance.** Research consistently shows that LLMs pay more attention to the beginning and end of the context window than the middle. This is called the "lost in the middle" problem. Stuffing 100K tokens of context doesn't mean the model will use all of it equally well.
+**Quality degrades with distance — the "lost in the middle" problem.** Research consistently shows that LLMs pay more attention to the beginning and end of the context window than the middle. This has been studied extensively (the original "Lost in the Middle" paper by Liu et al. demonstrated this clearly), and it's one of the most important practical considerations for AI engineers.
 
-**Speed decreases with context length.** Longer contexts take longer to process. The first token of a response takes longer to arrive (higher "time to first token"), and the overall request takes longer.
+Imagine you're giving someone a stack of 20 documents and asking them a question. They'll remember the first few documents well (primacy effect), and the last few documents well (recency effect), but the ones in the middle tend to blur together. LLMs have the same bias, even though they process text differently than humans.
+
+```
+Context window attention pattern:
+
+█████████  Strong attention (beginning of context)
+████████
+███████
+██████
+█████
+████       ← Weak attention (middle of context — "lost in the middle")
+████
+████
+█████
+██████
+███████
+████████
+█████████  Strong attention (end of context)
+```
+
+This has direct implications for how you structure prompts and RAG pipelines:
+
+- **Put the most important information at the beginning or end** of your context, not the middle
+- **Your system prompt (beginning) and the user's latest message (end)** get the most attention — that's good
+- **Retrieved documents stuffed in the middle** get less attention — this means RAG quality depends on where you place retrieved content, not just what you retrieve
+- **If you're sending 10 documents as context, the model might "forget" documents 4-7** even though they're right there in the input
+- **Shorter, more focused context often beats longer, comprehensive context** because there's less opportunity for important information to get lost
+
+This is why "just make the context window bigger" isn't a silver bullet. A 1M-token context window doesn't mean the model uses all 1M tokens equally well. We'll cover strategies for this in Ch 12, including placing retrieved content strategically and using re-ranking to ensure the best content gets the best positions.
+
+**Speed decreases with context length.** Longer contexts take longer to process. The first token of a response takes longer to arrive (higher "time to first token"), and the overall request takes longer. The relationship isn't perfectly linear — there's a quadratic component in the attention mechanism — but for practical purposes, doubling your context roughly doubles your wait time.
 
 ### 2.4 Practical Context Window Strategies
 
@@ -312,38 +458,90 @@ This is the single most important concept for any AI engineer to internalize:
 
 When you ask "What is the capital of France?", the model doesn't look up "France → Paris" in a database. It predicts that, given the input tokens, the most likely next tokens form the string "Paris" — because in its training data, that sequence overwhelmingly follows similar prompts.
 
+The best analogy: **an LLM is a confident bullshitter.** Not in a malicious way — but in the way that a very articulate person who has read millions of documents will always produce a fluent, confident-sounding answer, even when they're unsure or flat-out wrong. They've internalized the *patterns* of what correct answers look like, so their wrong answers look just as polished as their right ones. There's no internal "I'm not sure about this" flag that changes the tone of the output.
+
+This is fundamentally different from a search engine or database, which either returns a result or says "no results found." An LLM always generates *something*. It has no concept of "I don't have this information" built into its architecture — that behavior has to be trained in after the fact (through RLHF), and it's never 100% reliable.
+
 This works great for things that appeared often in training data. It falls apart for:
 
-- **Rare facts**: Things that appeared infrequently in training
-- **Recent events**: Anything after the training data cutoff
-- **Specific numbers**: Exact dates, statistics, measurements
-- **Niche domains**: Specialized knowledge with little training representation
-- **Logical reasoning**: Multi-step deduction (the model is pattern-matching, not reasoning)
+- **Rare facts**: Things that appeared infrequently in training. If a fact appeared 10,000 times in training data, the model probably gets it right. If it appeared 3 times, it might mix it up with similar-sounding facts.
+- **Recent events**: Anything after the training data cutoff. The model doesn't know it doesn't know.
+- **Specific numbers**: Exact dates, statistics, measurements, phone numbers, URLs. Numbers are particularly hard because the model can't "reason" about whether 1648 vs 1654 is correct — both are plausible tokens.
+- **Niche domains**: Specialized knowledge with little training representation. Medical dosages, legal statute numbers, obscure API parameters.
+- **Logical reasoning**: Multi-step deduction where each step must be correct. The model is pattern-matching what reasoning "looks like," which works surprisingly well for 2-3 steps but degrades with complexity.
+- **Combining real facts in wrong ways**: The model might know Fact A and Fact B independently, but combine them incorrectly — e.g., attributing the right quote to the wrong person, or the right statistic to the wrong year.
 
 ### 4.2 Types of Hallucination
 
-**Confident fabrication**: The model generates false information with the same confidence as true information. "The Treaty of Westphalia was signed in 1648" (true) sounds exactly like "The Treaty of Westphalia was signed in 1654" (false). There's no uncertainty marker in the output.
+Understanding the different types helps you design appropriate safeguards:
 
-**Plausible but wrong**: The model generates something that *sounds* right and follows the right patterns but is factually incorrect. "The Eiffel Tower was designed by Alexandre-Gustave Eiffel and completed in 1887" — it was completed in 1889.
+**Confident fabrication**: The model generates false information with the same confidence as true information. "The Treaty of Westphalia was signed in 1648" (true) sounds exactly like "The Treaty of Westphalia was signed in 1654" (false). There's no uncertainty marker in the output. The tokens are generated with the same fluency either way.
 
-**Citation fabrication**: Ask the model for academic sources and it will generate papers with realistic titles, plausible author names, and convincing journal names — for papers that don't exist. The format is right. The content is invented.
+**Plausible but wrong**: The model generates something that *sounds* right and follows the right patterns but is factually incorrect. "The Eiffel Tower was designed by Alexandre-Gustave Eiffel and completed in 1887" — it was completed in 1889. This is particularly dangerous because a human reviewer might not catch it. The error is close enough to the truth that it passes a casual sniff test.
 
-**Reasoning errors**: The model generates step-by-step reasoning that looks logical but contains a subtle error in one step, leading to a wrong conclusion. It's pattern-matching what reasoning "looks like" without actually reasoning.
+**Entity confusion**: The model mixes up attributes of similar entities. It might give you the population of Houston when you asked about Dallas, or describe the features of React Router when you asked about Next.js routing. The entities are in the same "neighborhood" of the model's learned representations, and it confuses their attributes. You'll see this especially with:
+- Similar products or libraries in the same category
+- People with similar names or roles
+- Cities in the same region
+- Companies in the same industry
 
-### 4.3 Why You Can't Fully Eliminate Hallucination
+**Citation fabrication**: Ask the model for academic sources and it will generate papers with realistic titles, plausible author names, and convincing journal names — for papers that don't exist. The format is right. The content is invented. This happens because the model has learned the *pattern* of academic citations (Author, Year, "Title in Quotes," *Journal Name*, Volume(Issue), pages) and can generate that pattern fluently. A lawyer famously submitted a brief with ChatGPT-fabricated case citations — none of the cited cases existed.
+
+**Reasoning errors (logical hallucination)**: The model generates step-by-step reasoning that looks logical but contains a subtle error in one step, leading to a wrong conclusion. It's pattern-matching what reasoning "looks like" without actually reasoning. This is especially common in:
+- Multi-step math problems (carries an error through subsequent steps)
+- Logical deductions with more than 3-4 steps
+- Code that looks syntactically correct but has a logic bug
+- Analyses that follow a sound structure but apply a flawed assumption
+
+**Temporal confusion**: The model conflates information from different time periods. It might describe a company's current product lineup using features from 2 years ago, or mix up the sequence of historical events. Training data from different eras all looks the same to the model — there's no strong "timestamp" attached to each fact.
+
+**Over-generalization**: The model makes a broad claim based on a pattern it learned, even when it doesn't apply to the specific case. "Python is slower than Go" is generally true but wrong for specific workloads. The model has learned the generalization and may apply it inappropriately when asked about a specific case.
+
+### 4.3 Why Hallucination Rates Vary
+
+Not all tasks are equally prone to hallucination. Understanding the risk profile helps you design appropriate safeguards:
+
+```
+Hallucination risk spectrum:
+
+LOW RISK (model is parroting well-known patterns):
+  ✓ Summarizing a document you provided
+  ✓ Translating common phrases
+  ✓ Formatting/restructuring text
+  ✓ Classifying text into categories you defined
+  ✓ Answering questions about text in the context window
+
+MEDIUM RISK (model is combining learned patterns):
+  ⚠ Writing code (may use non-existent APIs or wrong syntax)
+  ⚠ Answering factual questions from memory
+  ⚠ Explaining technical concepts
+  ⚠ Generating recommendations
+
+HIGH RISK (model is generating novel claims):
+  ✗ Citing specific sources, URLs, or papers
+  ✗ Providing exact numbers, dates, or statistics
+  ✗ Making claims about specific people or organizations
+  ✗ Legal, medical, or financial advice
+  ✗ Describing events after the training cutoff
+```
+
+The principle: the more the task relies on the model's "memory" (compressed training data) vs. the information you provide in the context, the higher the hallucination risk. This is why RAG is so important — it shifts tasks from "rely on memory" to "rely on provided documents."
+
+### 4.4 Why You Can't Fully Eliminate Hallucination
 
 Hallucination isn't a bug — it's a fundamental property of how these models work. The same mechanism that lets an LLM generate creative, coherent, contextually appropriate text is the mechanism that produces hallucinations.
 
 Think about it: if the model could ONLY output things it "knew" with certainty, it couldn't do most of what makes it useful. It couldn't rephrase, summarize, translate, write code for your specific use case, or have a conversation. All of those require generating *new* text that wasn't in the training data.
 
 **What you can do:**
-1. **Reduce hallucination** with better prompts (Ch 4)
-2. **Ground responses** in retrieved documents (RAG — Ch 14-17)
-3. **Verify outputs** with structured schemas (Ch 5)
-4. **Detect hallucination** with evaluations (Ch 18-22)
-5. **Set expectations** in your UI — don't present LLM output as authoritative fact
+1. **Reduce hallucination** with better prompts (Ch 4) — be specific, provide examples, constrain the output format
+2. **Ground responses** in retrieved documents (RAG — Ch 14-17) — give the model the facts, don't rely on its memory
+3. **Verify outputs** with structured schemas (Ch 5) — at least ensure the format is correct, even if the content needs checking
+4. **Detect hallucination** with evaluations (Ch 18-22) — build automated checks that catch common failure modes
+5. **Set expectations** in your UI — don't present LLM output as authoritative fact. Show sources. Add disclaimers.
+6. **Use reasoning models** for complex tasks — o3, o4-mini, and Claude with extended thinking hallucinate less on reasoning tasks because they "think through" the answer before committing
 
-### 4.4 The Practical Takeaway
+### 4.5 The Practical Takeaway
 
 Never trust LLM output as fact. Always design your system assuming the model might be wrong:
 
@@ -354,6 +552,30 @@ Never trust LLM output as fact. Always design your system assuming the model mig
 - **Code generation?** Run tests.
 
 The models that hallucinate less aren't "smarter" — they've been trained with more reinforcement learning from human feedback (RLHF) to say "I don't know" more often. But even the best models hallucinate. Design for it.
+
+### 4.6 A Framework for Hallucination-Aware Design
+
+When building any AI feature, ask these questions upfront:
+
+```
+1. What's the COST of a hallucination in this feature?
+   ├─ Low:  chatbot gives a slightly wrong fun fact  → Accept the risk, add a disclaimer
+   ├─ Medium: support bot gives wrong instructions   → Ground in docs, add human escalation
+   └─ High: medical/legal/financial advice is wrong  → Require human review, multiple validation layers
+
+2. What's my VERIFICATION strategy?
+   ├─ Can I validate the output programmatically? (schemas, regex, type checking)
+   ├─ Can I compare against a known source? (RAG, database lookup)
+   ├─ Do I need human review? (approval workflow, flagging)
+   └─ Can I detect WHEN the model is likely wrong? (confidence scoring, eval patterns)
+
+3. What happens when the model IS wrong?
+   ├─ Does the user see it directly? → Add disclaimers, show sources
+   ├─ Does it feed into another system? → Add validation before passing downstream
+   └─ Is it a suggestion vs a decision? → Frame as suggestion, keep human in the loop
+```
+
+This framework is something you'll apply in every chapter from here on. Ch 4 (prompting) reduces hallucination at the input level. Ch 5 (structured output) catches it at the output level. Ch 14-17 (RAG) grounds it in real data. Ch 18-22 (evals) detects it systematically.
 
 ---
 
@@ -389,9 +611,24 @@ Takes milliseconds to seconds, not months
 
 **The model doesn't learn from your conversations.** When you "teach" an LLM something in a conversation, you're not changing its weights. You're adding information to the context window that influences its predictions for *this session only*. Next session, it's a blank slate.
 
+This is one of the most common misunderstandings we see from non-technical stakeholders. "We've been using Claude for 6 months — hasn't it learned our company's style by now?" No. Every single API call starts from the same pre-trained weights. What looks like "learning" is either prompt engineering (you've gotten better at instructing it) or context (you're now including relevant documents in the prompt).
+
 **Training data has a cutoff.** The model only "knows" things from its training data. Claude's training data has a cutoff; GPT-4's has a cutoff. If something happened after the cutoff, the model doesn't know about it (unless you put it in the context).
 
-**You probably won't train models.** Training a model from scratch costs millions of dollars in compute. Fine-tuning (adjusting a pre-trained model on your data) is more accessible but still requires expertise. For most AI engineering tasks, you'll use pre-trained models via APIs and control their behavior through prompting, context, and retrieval.
+This creates a practical problem: your model doesn't know about your latest product release, your competitor's new feature, or last week's industry news. This is exactly why RAG (Retrieval Augmented Generation) exists — to feed the model current, relevant information at inference time. We build RAG pipelines in Ch 14-17.
+
+**You probably won't train models.** Training a model from scratch costs millions of dollars in compute. Fine-tuning (adjusting a pre-trained model on your data) is more accessible but still requires expertise and thousands of training examples. For most AI engineering tasks, you'll use pre-trained models via APIs and control their behavior through prompting, context, and retrieval.
+
+Here's the breakdown of what each approach costs in practice:
+
+```
+From-scratch training:    $10M-$100M+   (months, requires ML research team)
+Full fine-tuning:         $500-$50,000  (hours-days, requires ML engineering)
+LoRA/QLoRA fine-tuning:   $50-$500      (hours, more accessible)
+Prompt engineering + RAG:  $0-$100       (minutes-days, any developer)
+```
+
+The vast majority of AI features in production today use the bottom option. Start there.
 
 ### 5.3 The Training Pipeline (High Level)
 
@@ -406,6 +643,10 @@ For your mental model, here's what happens before you get access to a model:
 4. **Safety training**: Additional training focused on refusing harmful requests, avoiding biases, and following safety guidelines.
 
 The result is a model that can follow instructions, maintain a conversation, refuse harmful requests, and generate helpful outputs — all properties that emerged from training, not from the architecture itself.
+
+**A useful analogy:** Pre-training is like giving someone a broad education — they read millions of books and can talk about anything. SFT is like teaching them a specific job — "when someone asks you a question, respond in this format." RLHF is like performance reviews — "this response was good, this one wasn't, here's why." Safety training is like compliance training — "never do these things, no matter what."
+
+The model you interact with through the API is the end result of all four stages. When it seems "smart," that's mostly pre-training. When it follows your instructions well, that's SFT. When it refuses to help with harmful requests, that's safety training. When it's generally helpful and not annoying, that's RLHF.
 
 > **Spiral note:** Ch 34-36 go deep into the ML fundamentals: how neural networks learn, what weights and biases are, how backpropagation works. Ch 44-47 cover fine-tuning your own models.
 
@@ -467,7 +708,30 @@ The LLM landscape changes fast, but the major families have stabilized. Here's w
 
 **Vibe:** The European sports car — focused, efficient, a bit niche.
 
-### 6.2 How to Choose (Quick Decision Tree)
+### 6.2 Comparison Table: Models at a Glance
+
+Here's a practical comparison of the major models as of early 2026, focusing on what matters for engineering decisions:
+
+| Model | Context | Input $/1M | Output $/1M | Best For | Weakest At |
+|---|---|---|---|---|---|
+| **GPT-4o** | 128K | $2.50 | $10.00 | General purpose, code, broad tool support | Can be verbose, mid-range pricing |
+| **GPT-4o-mini** | 128K | $0.15 | $0.60 | High-volume simple tasks, prototyping | Complex reasoning, nuanced instructions |
+| **o3** | 200K | $10.00 | $40.00 | Complex math, planning, hard reasoning | Speed (very slow), cost |
+| **o4-mini** | 200K | $1.10 | $4.40 | Affordable reasoning tasks | Less capable than full o3 |
+| **Claude Opus 4** | 200K | $15.00 | $75.00 | Hardest tasks, extended thinking, precision | Expensive, slower |
+| **Claude Sonnet 4** | 200K | $3.00 | $15.00 | Instruction following, writing, balanced quality | Smaller ecosystem than OpenAI |
+| **Claude 3.5 Haiku** | 200K | $0.80 | $4.00 | Fast classification, extraction, triage | Complex multi-step reasoning |
+| **Gemini 2.5 Pro** | 1M | $1.25 | $10.00 | Huge context tasks, multimodal | API ergonomics, tool calling maturity |
+| **Gemini 2.0 Flash** | 1M | $0.10 | $0.40 | Cheapest option, high throughput | Quality on hard tasks |
+| **Llama 4 Scout** | 10M* | Free** | Free** | Self-hosting, privacy, fine-tuning | Requires infrastructure, lower quality |
+| **Mistral Large** | 128K | $2.00 | $6.00 | Multilingual, European data residency | Smaller ecosystem |
+
+*\*Llama 4 Scout's 10M context is theoretical; practical limits depend on hardware.*
+*\*\*Llama models are free to download but require GPU infrastructure to run.*
+
+**How to read this table:** Start from the rightmost columns. If the "Weakest At" column describes your use case, skip that model. If the "Best For" column matches your use case, that's your first candidate.
+
+### 6.3 How to Choose (Quick Decision Tree)
 
 ```
 Need to ship fast with minimal risk?
@@ -492,7 +756,7 @@ Need complex reasoning with step-by-step thinking?
   → o3, o4-mini, Claude Opus 4 (extended thinking), Gemini 2.5 Pro
 ```
 
-### 6.3 Model Size and Quality
+### 6.4 Model Size and Quality
 
 Models come in different sizes, measured in **parameters** (the learned values in the neural network):
 
@@ -513,7 +777,7 @@ Why? Because:
 
 We'll cover model selection in much more depth in Ch 2 (The AI Engineer's Landscape) and Ch 43 (Model Selection & Architecture).
 
-### 6.4 Open Source vs Closed Source
+### 6.5 Open Source vs Closed Source
 
 This is a fundamental choice you'll revisit throughout the guide:
 
@@ -583,51 +847,162 @@ The critical things to remember:
 - **The model doesn't know things.** It predicts tokens. Design accordingly.
 - **The model doesn't learn from you.** Each API call is stateless. Conversation history is just more input tokens.
 
+### 7.1 A Day-in-the-Life Example
+
+To make this concrete, here's what happens when a user interacts with a customer support chatbot you've built:
+
+```
+User opens the chat widget on your website.
+
+Turn 1:
+  Your app sends to the API:
+    System prompt: "You are a support agent for Acme Corp. Use the provided 
+                    knowledge base articles to answer questions..." (800 tokens)
+    User message: "How do I reset my password?" (8 tokens)
+    Total input: 808 tokens
+  
+  Model generates: "To reset your password, go to Settings > Account > 
+                     Reset Password..." (120 tokens)
+  
+  Cost: (808 × $2.50/1M) + (120 × $10.00/1M) = $0.003
+  Latency: ~0.8 seconds
+
+Turn 5:
+  Your app sends:
+    System prompt: 800 tokens (same as before — repeated every turn)
+    Turns 1-4 history: ~1,200 tokens
+    User message: "What if I forgot my email too?" (9 tokens)
+    Total input: 2,009 tokens
+  
+  Model generates: "If you've also forgotten your email..." (150 tokens)
+  
+  Cost: (2,009 × $2.50/1M) + (150 × $10.00/1M) = $0.007
+  Latency: ~1.2 seconds
+
+Turn 20:
+  Total input: ~8,000 tokens (context has grown significantly)
+  Cost per turn: ~$0.025
+  Cumulative conversation cost: ~$0.25
+  Latency: ~2.5 seconds (noticeably slower)
+```
+
+Notice the pattern: each turn gets more expensive and slower because the entire conversation history is re-sent. This is why context window management (Ch 12) is so important — and why strategies like summarizing old messages can dramatically reduce costs.
+
 ---
 
 ## 8. Common Misconceptions
 
-Let's clear up some things that trip up new AI engineers:
+Let's clear up things that trip up new AI engineers. These are some of the most common mistakes people make when they start building with LLMs, and each one can lead to real bugs, wasted money, or bad architecture decisions.
 
 ### "The model remembers our conversation"
 
-No. Each API call is stateless. The model has no memory between requests. "Memory" in a chatbot is maintained by YOU — by sending the entire conversation history with each request. This is why conversations get expensive: you're re-sending everything.
+No. Each API call is completely stateless. The model has no memory between requests. It doesn't know who you are, what you asked 5 minutes ago, or what it said in response. Every single API call starts from scratch.
+
+"Memory" in a chatbot is maintained by YOU — by sending the entire conversation history with each request. When you see ChatGPT "remembering" your conversation, it's because the client is re-sending all previous messages as input tokens every time. This is why conversations get expensive: you're re-sending everything, and the cost grows with every turn.
+
+This has a subtle engineering implication: if your app crashes and you lose the conversation history, the model can't help you recover it. The model never stored it. YOU are the memory layer.
 
 ### "I trained the model by giving it examples"
 
 No. You added examples to the context window. The model's weights didn't change. Those examples influence *this request only*. This is called "in-context learning" or "few-shot prompting" and it's powerful — but it's not training.
 
+Here's the test: close your session and start a new one. Does the model remember those examples? No. Because no training happened. You were renting a few thousand tokens of attention, not teaching the model anything permanent.
+
+Actual training (fine-tuning) is a separate process that changes the model's weights, requires hundreds or thousands of examples, takes minutes to hours, and produces a new model checkpoint. We cover it in Ch 44-47.
+
 ### "The model understands what I mean"
 
 Sort of. The model is very good at predicting what a helpful response to your input would look like, based on its training data. Whether that constitutes "understanding" is a philosophical debate. What matters for engineering: treat it as a sophisticated pattern matcher, not a thinking agent.
+
+Here's a practical test: if you misspell a crucial word or use ambiguous phrasing, the model might "understand" what you meant (because it can pattern-match past the error) or it might silently produce the wrong thing (because it pattern-matched to something else). It doesn't "understand" your intent — it predicts the most likely completion. Those are often the same thing, but not always.
+
+### "The model knows things"
+
+This is the most dangerous misconception. LLMs don't "know" things the way a database stores records. They've learned statistical patterns from training data that let them generate text that looks like it comes from someone who knows things. This is a crucial distinction.
+
+A database either has a record or it doesn't. An LLM always generates *something*. It can't tell you "I don't have that information in my parameters" because it doesn't have a lookup mechanism — it has a generation mechanism. When the model says "I don't know," that's because it was trained (via RLHF) to recognize uncertainty patterns and generate disclaimers. It's a learned behavior, not an intrinsic capability.
+
+### "The model thinks step by step"
+
+When you see an LLM write "Let me think about this step by step..." it's generating tokens that pattern-match to step-by-step reasoning in its training data. For standard models, there's no separate "thinking" process — just token prediction. The reasoning models (o3, o4-mini, Claude with extended thinking) do have a separate chain-of-thought phase, but even then, it's structured token generation, not human-like thought.
+
+The practical implication: asking the model to "think step by step" often improves results (this is called chain-of-thought prompting), not because the model literally starts thinking harder, but because generating intermediate reasoning tokens gives the model more "working memory" to arrive at a better final answer. We cover this technique in Ch 4.
 
 ### "Bigger models are always better"
 
 No. Bigger models are better at *hard tasks* — complex reasoning, nuanced instructions, subtle distinctions. For simple tasks (classification, extraction, formatting), smaller models are often just as good and much cheaper. Always try the smallest model first.
 
+We've seen teams burn thousands of dollars per month using Claude Opus 4 ($75/1M output tokens) for tasks that Claude 3.5 Haiku ($4/1M output tokens) handles at the same quality. That's an 18x cost difference for zero quality improvement. Always benchmark.
+
 ### "Temperature 0 gives the same answer every time"
 
-Mostly, but not perfectly. Even at temperature 0, floating-point arithmetic on GPUs can introduce tiny variations. For true determinism, some APIs offer a `seed` parameter. But even then, model updates on the provider's side can change outputs.
+Mostly, but not perfectly. Even at temperature 0, floating-point arithmetic on GPUs can introduce tiny variations. For true determinism, some APIs offer a `seed` parameter. But even then, model updates on the provider's side can change outputs. And if you're using streaming, the batching behavior on the server can affect the exact computation path.
+
+If your system requires exactly identical outputs for identical inputs, you need a caching layer, not temperature 0.
 
 ### "More tokens in the context = better results"
 
-Not necessarily. The "lost in the middle" problem means models pay less attention to information in the middle of long contexts. A well-curated 2,000-token context often outperforms a carelessly assembled 50,000-token context. Quality over quantity.
+Not necessarily. The "lost in the middle" problem (Section 2.3) means models pay less attention to information in the middle of long contexts. A well-curated 2,000-token context often outperforms a carelessly assembled 50,000-token context. Quality over quantity.
+
+Think of it like giving a research paper to a colleague. Handing them the 3 most relevant paragraphs is more useful than handing them the entire 50-page document and saying "the answer is in here somewhere."
+
+### "The API responses are private and not used for training"
+
+This depends on the provider and your agreement. Most providers have specific policies:
+- **OpenAI**: Data from API calls is NOT used for training by default (as of March 2023). But data from ChatGPT may be, unless you opt out.
+- **Anthropic**: API data is not used for training by default.
+- **Google**: Check your specific agreement — enterprise vs consumer terms differ.
+
+Always read the data usage policy for your provider, especially if you're handling sensitive data. When in doubt, use the enterprise tier, which typically has stronger data protection guarantees.
 
 ---
 
 ## 9. Key Takeaways
 
-1. **Tokens are the currency.** Everything — cost, speed, context — is measured in tokens. ~4 characters per token in English.
+1. **Tokens are the currency.** Everything — cost, speed, context — is measured in tokens. ~4 characters per token in English. Always estimate token costs before committing to a model at scale.
 
-2. **Context windows are the constraint.** Every model has a maximum context size. Your system prompt, conversation history, retrieved documents, and the response all must fit.
+2. **Context windows are the constraint.** Every model has a maximum context size. Your system prompt, conversation history, retrieved documents, and the response all must fit. And even within the window, the model pays less attention to content in the middle ("lost in the middle").
 
-3. **Temperature controls randomness.** Low (0-0.3) for deterministic/factual tasks, medium (0.5-0.8) for conversation, high (0.8-1.5) for creative work.
+3. **Temperature controls randomness.** Low (0-0.3) for deterministic/factual tasks, medium (0.5-0.8) for conversation, high (0.8-1.5) for creative work. Use one of temperature or top-p, not both.
 
-4. **Hallucination is inherent.** LLMs predict tokens, they don't retrieve facts. Design your system to handle wrong answers.
+4. **Hallucination is inherent.** LLMs predict tokens, they don't retrieve facts. Design your system to handle wrong answers. The risk varies by task — grounding in retrieved documents dramatically reduces hallucination.
 
-5. **Training happened already.** You're doing inference. The model doesn't learn from your conversations.
+5. **Training happened already.** You're doing inference. The model doesn't learn from your conversations. Each API call is stateless. You are the memory layer.
 
-6. **Start with the smallest sufficient model.** GPT-4o-mini or Claude Haiku before reaching for Opus.
+6. **Start with the smallest sufficient model.** GPT-4o-mini or Claude Haiku before reaching for Opus. The cost difference can be 20x+ with negligible quality difference for simple tasks.
+
+7. **The model doesn't "know" things.** It predicts plausible-sounding text. Treat it as a sophisticated pattern matcher, not a knowledge base. Never trust LLM output as fact without verification.
+
+---
+
+---
+
+## 10. Quick Reference Card
+
+Here's a cheat sheet you can come back to when you need to remember the key numbers:
+
+```
+TOKENS
+  1 token ≈ 4 characters (English)
+  1 token ≈ 0.75 words (English)
+  1 page of text ≈ 500 tokens
+  Common word = 1 token, uncommon word = 2-4 tokens
+
+CONTEXT WINDOWS (2026)
+  GPT-4o:            128K tokens (~200 pages)
+  Claude Opus/Sonnet: 200K tokens (~300 pages)
+  Gemini 2.0/2.5:   1M tokens (~1,500 pages)
+
+TEMPERATURE
+  0:     Deterministic (data extraction, classification)
+  0.3-0.7: Balanced (conversation, general use)
+  0.8-1.5: Creative (brainstorming, writing)
+
+COSTS (per 1M tokens, as of early 2026)
+  Cheap:    GPT-4o-mini ($0.15/$0.60), Gemini Flash ($0.10/$0.40)
+  Standard: GPT-4o ($2.50/$10), Claude Sonnet 4 ($3/$15)
+  Premium:  o3 ($10/$40), Claude Opus 4 ($15/$75)
+```
 
 ---
 

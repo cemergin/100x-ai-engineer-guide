@@ -14,7 +14,7 @@
 
 > Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 21 · Difficulty: Intermediate · Language: TypeScript
 
-You've built assessments. You know how to measure quality offline. But what happens in production? Users don't file eval reports. They just leave. Or they send angry emails. Or they silently use the feature less and less.
+You've built evals. You know how to measure quality offline. But what happens in production? Users don't file eval reports. They just leave. Or they send angry emails. Or they silently use the feature less and less.
 
 Telemetry and tracing are how you know what's happening in production. How long is each LLM call taking? How many tokens are you burning per request? Which features cost the most? Is quality degrading over time? Which users are hitting edge cases?
 
@@ -32,7 +32,7 @@ This chapter instruments your AI system so you can see everything, catch problem
 ### Related Chapters
 
 - **Ch 21 (Eval-Driven Development)** — Tracing supports the eval loop.
-- **Ch 51 (Production Eval Pipelines)** — Production assessment pipelines built on telemetry.
+- **Ch 51 (Production Eval Pipelines)** — Production eval pipelines built on telemetry.
 - **Ch 52 (AI Observability & Incidents)** — Full observability stack for AI.
 
 ---
@@ -76,7 +76,7 @@ interface LLMTelemetryNeeds {
     toolAccuracy: "Did the agent pick the right tool?";
     formatCompliance: "Did the response match the expected schema?";
     userFeedback: "Thumbs up/down, ratings";
-    assessmentScores: "Automated quality scores on sampled traffic";
+    evalScores: "Automated quality scores on sampled traffic";
   };
   debugging: {
     fullTrace: "Every step of the agent loop with inputs/outputs";
@@ -431,7 +431,7 @@ async function tracedAgentLoop(
 
 ### 3.1 What Is Laminar?
 
-Laminar is a purpose-built observability platform for LLM applications. It provides tracing, logging, and assessment capabilities specifically designed for AI workloads.
+Laminar is a purpose-built observability platform for LLM applications. It provides tracing, logging, and eval capabilities specifically designed for AI workloads.
 
 ```typescript
 // laminar-setup.ts
@@ -1099,12 +1099,12 @@ You now have a complete telemetry stack for LLM applications:
 1. **OpenTelemetry setup** — Standard observability with traces and metrics
 2. **LLM call tracing** — Every API call tracked with tokens, latency, and cost
 3. **Agent loop tracing** — Parent-child spans for multi-step workflows
-4. **Laminar integration** — Purpose-built LLM tracing and assessment
+4. **Laminar integration** — Purpose-built LLM tracing and evaluation
 5. **Datadog LLM observability** — Production monitoring with alerts
 6. **Cost tracking** — Per feature, per user, per model with budget alerts
 7. **Non-blocking instrumentation** — Async buffers and sampling for high traffic
 
-This telemetry is the foundation for production assessment pipelines (Ch 51) and full AI observability (Ch 52) in Phase 2. But even at Phase 1 depth, you can now see what your AI system is doing, how much it costs, and where it's struggling.
+This telemetry is the foundation for production eval pipelines (Ch 51) and full AI observability (Ch 52) in Phase 2. But even at Phase 1 depth, you can now see what your AI system is doing, how much it costs, and where it's struggling.
 
 ---
 

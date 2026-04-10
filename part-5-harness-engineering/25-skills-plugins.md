@@ -28,8 +28,11 @@ The progression is deliberate: write skills (share knowledge) -> build plugins (
 4. Organizational skills: sharing across a team
 5. Cron jobs and scheduled agents
 6. Background agents
-7. The /ask-nelo pattern: company knowledge skill
-8. The /council pattern: multi-model adversarial review
+7. Event-driven AI workflows
+8. The /ask-nelo pattern: company knowledge skill
+9. The /council pattern: multi-model adversarial review
+9. Automation philosophy
+10. Evaluating skill quality
 
 ### Related Chapters
 
@@ -789,13 +792,340 @@ git worktree add ../project-update-docs feature/update-docs
 
 ---
 
-## 7. The /ask-nelo Pattern: Company Knowledge Skill
+## 7. Event-Driven AI Workflows
 
-### 7.1 The Problem
+Sections 5 and 6 covered agents that run on a schedule or in the background. But real-world AI automation is often *reactive* -- something happens, and the agent responds. A Slack message arrives, a GitHub PR is opened, an email lands in an inbox, a payment fails. The agent needs to wake up, process the event, and take action. This is the "always-on agent" pattern, and it is how systems like OpenClaw work in practice.
+
+### 7.1 The Pattern
+
+```
+External Event ──→ Webhook Endpoint ──→ Queue ──→ Agent Worker ──→ Action
+                        │
+                        ▼
+                   Validate + filter
+                   (ignore noise, only
+                    process relevant events)
+```
+
+The key insight: you do not point a webhook directly at an LLM. You point it at a lightweight handler that validates the event, decides if it is worth processing, and enqueues it for an agent worker. The queue gives you reliability (retry on failure), backpressure (don't overwhelm the LLM), and observability (how many events are pending?).
+
+### 7.2 Slack Message Triggers
+
+This is the OpenClaw pattern. A user @-mentions the agent in Slack, and the agent processes the message and responds.
+
+```typescript
+// slack-agent-webhook.ts -- Hono handler for Slack events
+import { Hono } from "hono";
+import { Queue } from "./queue"; // Your queue (SQS, BullMQ, Upstash QStash, etc.)
+import crypto from "crypto";
+
+const app = new Hono();
+
+// Slack sends events to this endpoint
+app.post("/webhooks/slack", async (c) => {
+  const body = await c.req.json();
+
+  // Slack URL verification challenge (required during setup)
+  if (body.type === "url_verification") {
+    return c.json({ challenge: body.challenge });
+  }
+
+  // Verify the request is from Slack (IMPORTANT: prevents spoofed events)
+  const signature = c.req.header("x-slack-signature");
+  const timestamp = c.req.header("x-slack-request-timestamp");
+  const sigBasestring = `v0:${timestamp}:${await c.req.text()}`;
+  const expectedSignature = "v0=" + crypto
+    .createHmac("sha256", process.env.SLACK_SIGNING_SECRET!)
+    .update(sigBasestring)
+    .digest("hex");
+
+  if (signature !== expectedSignature) {
+    return c.json({ error: "Invalid signature" }, 401);
+  }
+
+  // Filter: only process messages that @-mention the bot
+  const event = body.event;
+  if (event?.type !== "app_mention") {
+    return c.json({ ok: true }); // Acknowledge but ignore
+  }
+
+  // Enqueue for async processing (don't block the webhook response)
+  await Queue.enqueue("agent-tasks", {
+    type: "slack_message",
+    channel: event.channel,
+    threadTs: event.thread_ts ?? event.ts,
+    userId: event.user,
+    text: event.text,
+    timestamp: new Date().toISOString(),
+  });
+
+  // Respond to Slack within 3 seconds (required by Slack API)
+  return c.json({ ok: true });
+});
+
+export default app;
+```
+
+### 7.3 GitHub Webhook Triggers
+
+A PR is opened and the agent reviews it, or an issue is created and the agent triages it.
+
+```typescript
+// github-agent-webhook.ts
+import { Hono } from "hono";
+import { Queue } from "./queue";
+import crypto from "crypto";
+
+const app = new Hono();
+
+app.post("/webhooks/github", async (c) => {
+  // Verify GitHub webhook signature
+  const signature = c.req.header("x-hub-signature-256");
+  const rawBody = await c.req.text();
+  const expectedSignature = "sha256=" + crypto
+    .createHmac("sha256", process.env.GITHUB_WEBHOOK_SECRET!)
+    .update(rawBody)
+    .digest("hex");
+
+  if (signature !== expectedSignature) {
+    return c.json({ error: "Invalid signature" }, 401);
+  }
+
+  const event = c.req.header("x-github-event");
+  const payload = JSON.parse(rawBody);
+
+  // Route different GitHub events to different agent tasks
+  switch (event) {
+    case "pull_request":
+      if (payload.action === "opened" || payload.action === "synchronize") {
+        await Queue.enqueue("agent-tasks", {
+          type: "pr_review",
+          repo: payload.repository.full_name,
+          prNumber: payload.pull_request.number,
+          prTitle: payload.pull_request.title,
+          prBody: payload.pull_request.body,
+          author: payload.pull_request.user.login,
+        });
+      }
+      break;
+
+    case "issues":
+      if (payload.action === "opened") {
+        await Queue.enqueue("agent-tasks", {
+          type: "issue_triage",
+          repo: payload.repository.full_name,
+          issueNumber: payload.issue.number,
+          title: payload.issue.title,
+          body: payload.issue.body,
+          labels: payload.issue.labels.map((l: { name: string }) => l.name),
+        });
+      }
+      break;
+  }
+
+  return c.json({ ok: true });
+});
+```
+
+### 7.4 The Agent Worker
+
+The webhook handlers enqueue tasks. The worker dequeues and processes them. This separation is critical -- it gives you retries, rate limiting, and the ability to scale workers independently.
+
+```typescript
+// agent-worker.ts
+import Anthropic from "@anthropic-ai/sdk";
+import { Queue, type AgentTask } from "./queue";
+
+const anthropic = new Anthropic();
+
+async function processTask(task: AgentTask) {
+  switch (task.type) {
+    case "slack_message":
+      return processSlackMessage(task);
+    case "pr_review":
+      return processPRReview(task);
+    case "issue_triage":
+      return processIssueTriage(task);
+    default:
+      console.warn(`Unknown task type: ${(task as { type: string }).type}`);
+  }
+}
+
+async function processSlackMessage(task: {
+  type: "slack_message";
+  channel: string;
+  threadTs: string;
+  userId: string;
+  text: string;
+}) {
+  // Strip the @mention to get the actual question
+  const question = task.text.replace(/<@[A-Z0-9]+>/g, "").trim();
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2048,
+    system: "You are a helpful engineering assistant. Answer concisely. Use Slack-compatible markdown.",
+    messages: [{ role: "user", content: question }],
+  });
+
+  const answer = (response.content[0] as { type: "text"; text: string }).text;
+
+  // Post the response back to the Slack thread
+  await fetch("https://slack.com/api/chat.postMessage", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      channel: task.channel,
+      thread_ts: task.threadTs, // Reply in thread, not the main channel
+      text: answer,
+    }),
+  });
+}
+
+async function processPRReview(task: {
+  type: "pr_review";
+  repo: string;
+  prNumber: number;
+  prTitle: string;
+  prBody: string;
+  author: string;
+}) {
+  // Fetch the PR diff using GitHub API
+  const diffResponse = await fetch(
+    `https://api.github.com/repos/${task.repo}/pulls/${task.prNumber}`,
+    {
+      headers: {
+        "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github.diff",
+      },
+    }
+  );
+  const diff = await diffResponse.text();
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 4096,
+    system: `You are a code reviewer. Review this PR and provide actionable feedback.
+Focus on: bugs, security issues, performance problems, and maintainability.
+Be specific -- reference line numbers and file names from the diff.
+Format as a GitHub-compatible markdown comment.`,
+    messages: [{
+      role: "user",
+      content: `PR #${task.prNumber}: ${task.prTitle}\n\nDescription: ${task.prBody}\n\nDiff:\n${diff}`,
+    }],
+  });
+
+  const review = (response.content[0] as { type: "text"; text: string }).text;
+
+  // Post the review as a PR comment
+  await fetch(
+    `https://api.github.com/repos/${task.repo}/issues/${task.prNumber}/comments`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.GITHUB_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ body: review }),
+    }
+  );
+}
+
+// Worker loop: pull tasks from queue and process them
+async function startWorker() {
+  console.log("Agent worker started, waiting for tasks...");
+
+  while (true) {
+    const task = await Queue.dequeue("agent-tasks");
+    if (!task) {
+      // No tasks available -- wait briefly before polling again
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      continue;
+    }
+
+    try {
+      await processTask(task);
+      await Queue.acknowledge(task); // Mark as successfully processed
+    } catch (error) {
+      console.error(`Failed to process task:`, error);
+      // Queue will automatically retry after visibility timeout
+      await Queue.nack(task); // Return to queue for retry
+    }
+  }
+}
+
+startWorker();
+```
+
+### 7.5 The n8n Automation Layer
+
+For teams that do not want to write webhook handlers from scratch, n8n is a workflow automation tool that connects triggers to actions with a visual editor. It is self-hostable, has hundreds of integrations, and can spawn agent executions as a workflow step.
+
+The pattern: n8n handles the webhook plumbing (Slack, GitHub, email, calendar, CRM) and your agent handles the intelligence.
+
+```
+n8n Workflow:
+  Trigger: Slack message in #support channel
+  → Filter: Only messages with "help" or "question"
+  → HTTP Request: POST to your agent API with the message
+  → Slack: Post agent response back to thread
+```
+
+This is powerful because non-engineers can create new agent triggers by building n8n workflows without touching code. The agent API stays the same -- only the triggers change.
+
+### 7.6 Error Handling and Retry
+
+Event-driven agents fail. The LLM times out, the Slack API is down, the GitHub token is expired. Your error handling strategy determines whether failures are annoying or catastrophic.
+
+**Retry strategy:**
+- **Immediate retry (1x):** Network glitches, transient API errors
+- **Exponential backoff (3x):** Rate limits, temporary outages
+- **Dead letter queue:** After all retries fail, move to a DLQ for human review
+- **Idempotency:** The same event processed twice should produce the same result (or be safely ignored)
+
+```typescript
+// retry-config.ts -- example for BullMQ
+const queueConfig = {
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 5000, // 5s, 10s, 20s
+    },
+    removeOnComplete: { count: 1000 },  // Keep last 1000 completed jobs
+    removeOnFail: { count: 5000 },      // Keep last 5000 failed jobs for debugging
+  },
+};
+```
+
+### 7.7 The Always-On Agent Pattern
+
+The most advanced version of event-driven AI is the "always-on agent" -- an agent that continuously monitors one or more channels and acts autonomously. This is not a webhook that fires on each message. It is a persistent process that maintains context across interactions.
+
+```
+Always-On Agent:
+  1. Connects to Slack via WebSocket (RTM or Socket Mode)
+  2. Listens to configured channels
+  3. Maintains conversation context per thread
+  4. Responds to @-mentions and keyword triggers
+  5. Proactively surfaces insights ("I noticed 3 PRs have been open for 5+ days")
+  6. Runs background checks on a timer (CI status, dependency alerts)
+```
+
+The trust equation from Section 9 applies here: start with an agent that only responds when @-mentioned. Once you trust it, let it monitor channels passively. Only after extensive testing let it take autonomous actions (creating tickets, posting alerts, merging PRs).
+
+---
+
+## 8. The /ask-nelo Pattern: Company Knowledge Skill
+
+### 8.1 The Problem
 
 Your company has knowledge scattered everywhere: wiki pages, Slack conversations, GitHub issues, Linear tickets, incident postmortems, architecture decision records. When a new engineer asks "how does our payment system work?", the answer is spread across 12 different places.
 
-### 7.2 The Pattern
+### 8.2 The Pattern
 
 Build a skill that gives Claude Code access to all of these knowledge sources and lets any engineer ask questions in natural language:
 
@@ -841,7 +1171,7 @@ Answer questions about Nelo using all available knowledge sources.
 - "What happened in the last production incident?"
 ```
 
-### 7.3 Why This Works
+### 8.3 Why This Works
 
 The `/ask-nelo` pattern is a force multiplier because:
 
@@ -850,7 +1180,7 @@ The `/ask-nelo` pattern is a force multiplier because:
 - **The knowledge is always current** -- it queries live sources, not stale documentation
 - **It crosses silos** -- code, docs, Slack, and tickets are all queried together
 
-### 7.4 Making It Better Over Time
+### 8.4 Making It Better Over Time
 
 Track which questions get LOW confidence answers. Those are knowledge gaps you need to fill:
 
@@ -866,13 +1196,13 @@ Over time, the knowledge gaps log tells you exactly what documentation to write.
 
 ---
 
-## 8. The /council Pattern: Multi-Model Adversarial Review
+## 9. The /council Pattern: Multi-Model Adversarial Review
 
-### 8.1 Inspiration
+### 9.1 Inspiration
 
 Andrej Karpathy described a pattern where you use multiple AI models to review each other's work. The idea: no single model catches all issues. By having multiple models (or the same model with different personas) review code adversarially, you catch more problems.
 
-### 8.2 The Pattern
+### 9.2 The Pattern
 
 ```markdown
 ---
@@ -928,7 +1258,7 @@ After running all three perspectives, synthesize:
 3. **Verdict** (overall assessment with reasoning)
 ```
 
-### 8.3 Running the Council
+### 9.3 Running the Council
 
 You can run the council manually:
 
@@ -946,7 +1276,7 @@ claude --auto --dangerously-skip-permissions \
   --output council-review.md
 ```
 
-### 8.4 Why Adversarial Review Works
+### 9.4 Why Adversarial Review Works
 
 Single-perspective review has blind spots. A security expert misses performance issues. A performance engineer misses security issues. The council pattern forces **systematic coverage** of different risk dimensions.
 
@@ -954,9 +1284,9 @@ The real value is in the tension points -- when the security perspective says "a
 
 ---
 
-## 9. Automation Philosophy
+## 10. Automation Philosophy
 
-### 9.1 The Automation Spectrum
+### 10.1 The Automation Spectrum
 
 ```
 Manual <----------------------------------------------> Fully Autonomous
@@ -970,7 +1300,7 @@ Manual <----------------------------------------------> Fully Autonomous
 
 Move right gradually. Trust but verify. Automate the boring stuff first.
 
-### 9.2 What to Automate First
+### 10.2 What to Automate First
 
 | Task | Automate? | Why |
 |------|-----------|-----|
@@ -982,7 +1312,7 @@ Move right gradually. Trust but verify. Automate the boring stuff first.
 | Deployment to production | No -- human approval required | High-risk |
 | Database migrations | No -- human review required | Irreversible |
 
-### 9.3 The Trust Equation
+### 10.3 The Trust Equation
 
 ```
 Automation Trust = (Consistency x Reversibility) / Impact
@@ -995,9 +1325,268 @@ Never auto:     Data deletion (irreversible, catastrophic impact)
 
 ---
 
-## 10. Putting It All Together
+## 11. Evaluating Skill Quality
 
-### 10.1 The Complete Setup
+You've built skills, packaged them into plugins, and shared them with your team. But how do you know a skill is *good*? A skill that works for the author might fail for different users, different inputs, or different codebases. This section builds the evaluation framework for skills, spiraling back from Ch 21 (eval-driven development) and forward to Ch 60 (skills marketplace quality gates).
+
+### 11.1 Testing if a Skill Consistently Produces Good Output
+
+A skill is not a function with a deterministic return value. It's a set of instructions that an LLM interprets. The same skill can produce different results depending on:
+
+- The model's interpretation of ambiguous instructions
+- The state of the codebase when the skill runs
+- The specificity of the user's invocation
+- Context window pressure (what else is loaded)
+
+This means skill testing looks more like eval testing than unit testing.
+
+```typescript
+// skill-eval.ts — testing a skill against known scenarios
+
+interface SkillEvalCase {
+  id: string;
+  invocation: string;             // how the user triggers the skill
+  codebaseState: string;          // description or path to fixture repo
+  expectedBehaviors: string[];    // what MUST happen
+  forbiddenBehaviors: string[];   // what must NOT happen
+  outputChecks: {
+    type: "contains" | "format" | "file_created" | "file_modified" | "command_ran";
+    value: string;
+  }[];
+}
+
+const reviewPRCases: SkillEvalCase[] = [
+  {
+    id: "review-pr-sql-injection",
+    invocation: "/review-pr",
+    codebaseState: "fixtures/pr-with-raw-sql",
+    expectedBehaviors: [
+      "Identifies the raw SQL query as a security issue",
+      "Flags it as CRITICAL severity",
+      "Suggests using parameterized queries or Drizzle ORM",
+    ],
+    forbiddenBehaviors: [
+      "Approves the PR without mentioning the SQL issue",
+      "Misidentifies the raw SQL as an ORM query",
+    ],
+    outputChecks: [
+      { type: "contains", value: "SQL" },
+      { type: "contains", value: "CRITICAL" },
+      { type: "contains", value: "REQUEST CHANGES" },
+    ],
+  },
+  {
+    id: "review-pr-clean",
+    invocation: "/review-pr",
+    codebaseState: "fixtures/pr-clean-code",
+    expectedBehaviors: [
+      "Recognizes the PR follows conventions",
+      "Approves or has only minor nits",
+    ],
+    forbiddenBehaviors: [
+      "Flags false positive security issues",
+      "Requests changes on compliant code",
+    ],
+    outputChecks: [
+      { type: "contains", value: "APPROVE" },
+    ],
+  },
+];
+```
+
+### 11.2 Building Eval Cases for Skills
+
+Every skill should have eval cases that cover:
+
+**Happy path** — the skill works as intended on normal input.
+
+**Edge cases** — unusual but valid inputs (empty PR, single-file change, massive diff).
+
+**Adversarial cases** — inputs designed to confuse the skill (conflicting conventions, ambiguous instructions).
+
+**Regression cases** — inputs that previously produced bad output (add these as you find failures).
+
+```yaml
+# evals/skills/deploy-staging.yaml
+cases:
+  - id: deploy-clean-branch
+    invocation: "/deploy-staging"
+    context: "Branch is clean, all tests pass, no merge conflicts"
+    expected:
+      - "Runs the deploy command"
+      - "Verifies health check after deploy"
+      - "Reports success with deployment URL"
+    tags: [smoke, happy-path]
+
+  - id: deploy-dirty-branch
+    invocation: "/deploy-staging"
+    context: "Branch has uncommitted changes"
+    expected:
+      - "Warns about uncommitted changes"
+      - "Asks for confirmation before proceeding OR refuses to deploy"
+    forbidden:
+      - "Deploys without warning about uncommitted changes"
+    tags: [edge-case]
+
+  - id: deploy-failing-tests
+    invocation: "/deploy-staging"
+    context: "Branch has 3 failing tests in the payments module"
+    expected:
+      - "Identifies the failing tests"
+      - "Refuses to deploy OR asks for explicit override"
+    forbidden:
+      - "Deploys without mentioning test failures"
+    tags: [edge-case, safety]
+```
+
+### 11.3 Automated Skill Testing in CI
+
+Run skill evals in CI whenever a skill file changes. This catches regressions before they reach the team.
+
+```yaml
+# .github/workflows/skill-evals.yml
+name: Skill Evals
+
+on:
+  pull_request:
+    paths:
+      - '.claude/skills/**'
+      - 'evals/skills/**'
+
+jobs:
+  eval-skills:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Run skill evals
+        run: npx tsx evals/skills/run.ts --changed-only
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVAL_BUDGET_CENTS: "500"
+        timeout-minutes: 15
+
+      - name: Post eval results to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = JSON.parse(fs.readFileSync('skill-eval-results.json', 'utf-8'));
+
+            let body = `## Skill Eval Results\n\n`;
+            body += `| Skill | Cases | Passed | Score |\n|-------|-------|--------|-------|\n`;
+            for (const skill of results.skills) {
+              const icon = skill.passRate >= 0.8 ? '✓' : '✗';
+              body += `| ${icon} ${skill.name} | ${skill.total} | ${skill.passed} | ${(skill.avgScore * 100).toFixed(0)}% |\n`;
+            }
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+```
+
+### 11.4 Quality Metrics for Skills
+
+Track these metrics for every skill:
+
+| Metric | What It Measures | Target |
+|--------|-----------------|--------|
+| **Task completion rate** | Does the skill accomplish its stated goal? | > 90% |
+| **Output format compliance** | Does the output match the expected format? | > 95% |
+| **Instruction adherence** | Does the skill follow all its own steps? | > 85% |
+| **Safety compliance** | Does the skill respect tool restrictions and deny rules? | 100% |
+| **User satisfaction** | Do users invoke the skill again (retention)? | > 70% |
+| **Invocation match rate** | Does the right skill activate for the right request? | > 90% |
+
+```typescript
+// skill-metrics.ts — track skill quality over time
+
+interface SkillMetrics {
+  skillId: string;
+  period: string;           // "2026-W15"
+  invocations: number;
+  completions: number;       // successfully finished
+  errors: number;            // crashed or timed out
+  userRetries: number;       // user re-invoked after seeing output (signal of dissatisfaction)
+  avgDurationMs: number;
+  taskCompletionRate: number; // completions / invocations
+  formatComplianceRate: number;
+}
+
+function assessSkillHealth(metrics: SkillMetrics): {
+  status: "healthy" | "degraded" | "broken";
+  issues: string[];
+} {
+  const issues: string[] = [];
+
+  if (metrics.taskCompletionRate < 0.9) {
+    issues.push(`Task completion rate ${(metrics.taskCompletionRate * 100).toFixed(0)}% (target: 90%)`);
+  }
+  if (metrics.errors / metrics.invocations > 0.05) {
+    issues.push(`Error rate ${((metrics.errors / metrics.invocations) * 100).toFixed(1)}% (target: < 5%)`);
+  }
+  if (metrics.userRetries / metrics.invocations > 0.3) {
+    issues.push(`High retry rate ${((metrics.userRetries / metrics.invocations) * 100).toFixed(0)}% — users may be dissatisfied`);
+  }
+
+  if (issues.length === 0) return { status: "healthy", issues };
+  if (issues.length <= 2) return { status: "degraded", issues };
+  return { status: "broken", issues };
+}
+```
+
+### 11.5 The Skill Review Checklist
+
+Before publishing a skill to a marketplace (Ch 60) or sharing it with a team, run through this checklist:
+
+```markdown
+## Skill Quality Checklist
+
+### Description & Discovery
+- [ ] Description clearly states what the skill does (not how)
+- [ ] Tested with 3+ different invocation phrases — all match correctly
+- [ ] Does not collide with existing skills in the same namespace
+
+### Content & Instructions
+- [ ] Steps are specific and actionable — no vague instructions
+- [ ] Progressive disclosure: quick steps first, reference material later
+- [ ] No hardcoded paths, secrets, or environment-specific values
+- [ ] Tool restrictions (allowed-tools) are appropriately scoped
+
+### Quality & Testing
+- [ ] Eval cases exist for happy path, edge cases, and at least one adversarial case
+- [ ] Eval pass rate >= 80% across all cases
+- [ ] Tested on a clean codebase (not just the author's environment)
+- [ ] Output format is consistent across multiple runs
+
+### Safety & Security
+- [ ] Does not expose secrets or PII in output
+- [ ] Respects deny rules and permission boundaries
+- [ ] Cannot be tricked into running destructive commands
+- [ ] Uses minimum necessary tool permissions
+
+### Documentation
+- [ ] CHANGELOG entry for version changes
+- [ ] Known limitations documented
+- [ ] Example invocations included
+```
+
+---
+
+## 12. Putting It All Together
+
+### 12.1 The Complete Setup
 
 Here is a complete `.claude/` directory that implements everything in this chapter:
 
@@ -1034,7 +1623,7 @@ Here is a complete `.claude/` directory that implements everything in this chapt
     +-- nelo-engineering/         (symlink or git submodule)
 ```
 
-### 10.2 The Team Adoption Path
+### 12.2 The Team Adoption Path
 
 ```
 Week 1:   One engineer sets up CLAUDE.md and 2-3 skills
@@ -1046,7 +1635,7 @@ Month 3:  Add scheduled agents for routine reports
 Month 6:  Review automation -- what worked, what didn't, what to add next
 ```
 
-### 10.3 Measuring Success
+### 12.3 Measuring Success
 
 Track these metrics for your skills and automations:
 
@@ -1060,7 +1649,7 @@ Track these metrics for your skills and automations:
 
 ## Summary
 
-This chapter covered three progressively powerful layers:
+This chapter covered four progressively powerful layers:
 
 1. **Skills** encode your team's knowledge into reusable, shareable workflows. The key is writing descriptions that match intent, using progressive disclosure, and treating skills as code (git, review, version).
 
@@ -1068,7 +1657,9 @@ This chapter covered three progressively powerful layers:
 
 3. **Automation** removes you from the loop. Scheduled agents run reports. Background agents do bulk work. The trust equation tells you what to automate: high consistency, high reversibility, low impact.
 
-The patterns that make this real -- `/ask-nelo` for knowledge, `/council` for review, daily reports for visibility -- are not theoretical. They are working systems at companies using Claude Code today.
+4. **Event-driven workflows** make agents reactive. Slack messages, GitHub webhooks, and external events trigger agent execution through a queue-based architecture that gives you reliability, retry, and observability.
+
+The patterns that make this real -- `/ask-nelo` for knowledge, `/council` for review, daily reports for visibility, event-driven agents for always-on responsiveness -- are not theoretical. They are working systems at companies using Claude Code today.
 
 The next chapter (Ch 26) zooms out from your personal and team workflow to the industry level: how companies like Stripe, Ramp, and Anthropic are building coding agent systems that make entire organizations more productive.
 

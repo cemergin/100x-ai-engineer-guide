@@ -25,6 +25,8 @@ The good news: if you can make a text API call (Ch 3), you can do all of this. T
 - Image generation: creating images from text with DALL-E
 - Audio: transcription with Whisper, text-to-speech
 - Multi-input: combining text + image + audio in requests
+- Real-time AI: bi-directional audio streaming and live vision
+- Video generation: the emerging landscape
 - Practical use cases and trade-offs
 
 ### Related Chapters
@@ -1112,7 +1114,220 @@ That's surprisingly affordable for a full multimodal AI support system.
 
 ---
 
-## 10. Key Takeaways
+## 10. Real-Time AI
+
+Everything so far has been request-response: you send a message, you get a reply. Real-time AI removes that boundary. Audio streams in, responses stream back, and the interaction feels like a conversation -- not a form submission.
+
+### 10.1 The OpenAI Realtime API
+
+The Realtime API enables bi-directional audio streaming with GPT-4o. Instead of recording audio, sending a file, waiting for transcription, generating a response, then synthesizing speech -- all of that happens in a single persistent connection.
+
+```typescript
+// realtime-audio-client.ts — connecting to OpenAI's Realtime API
+import WebSocket from "ws";
+
+interface RealtimeConfig {
+  model: "gpt-4o-realtime-preview";
+  modalities: ("text" | "audio")[];
+  voice: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+  instructions: string;
+  turn_detection: {
+    type: "server_vad";            // server-side voice activity detection
+    threshold: number;              // 0.0 - 1.0, sensitivity
+    silence_duration_ms: number;    // how long silence = end of turn
+  };
+}
+
+function connectRealtime(config: RealtimeConfig): WebSocket {
+  const ws = new WebSocket(
+    "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview",
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "OpenAI-Beta": "realtime=v1",
+      },
+    }
+  );
+
+  ws.on("open", () => {
+    // Configure the session
+    ws.send(JSON.stringify({
+      type: "session.update",
+      session: {
+        modalities: config.modalities,
+        voice: config.voice,
+        instructions: config.instructions,
+        turn_detection: config.turn_detection,
+      },
+    }));
+  });
+
+  ws.on("message", (data) => {
+    const event = JSON.parse(data.toString());
+
+    switch (event.type) {
+      case "response.audio.delta":
+        // Streaming audio chunk — play this to the user
+        const audioChunk = Buffer.from(event.delta, "base64");
+        playAudio(audioChunk);
+        break;
+
+      case "response.audio_transcript.delta":
+        // Real-time transcript of the AI's speech
+        process.stdout.write(event.delta);
+        break;
+
+      case "input_audio_buffer.speech_started":
+        // User started talking — interrupt current response if needed
+        break;
+
+      case "input_audio_buffer.speech_stopped":
+        // User stopped talking — model will start responding
+        break;
+    }
+  });
+
+  return ws;
+}
+
+// Send audio data from microphone
+function sendAudioChunk(ws: WebSocket, audioData: Buffer) {
+  ws.send(JSON.stringify({
+    type: "input_audio_buffer.append",
+    audio: audioData.toString("base64"),
+  }));
+}
+```
+
+### 10.2 When Real-Time AI Makes Sense
+
+**Good use cases for real-time:**
+- Voice assistants and phone agents (customer support, scheduling)
+- Live translation during video calls
+- Accessibility tools (real-time captioning with AI enhancement)
+- Interactive tutoring with voice
+- Live coding assistance with voice commands
+
+**When batch processing is better:**
+- Document analysis (no urgency, cheaper in batch)
+- Content generation (quality matters more than speed)
+- Data processing pipelines (throughput over latency)
+- Anything where the user doesn't need an immediate response
+
+### 10.3 Real-Time Vision
+
+Processing video frames in real-time follows a similar pattern: capture frames, send them to a vision model, get streaming analysis.
+
+```typescript
+// real-time-vision-pattern.ts — processing video frames
+
+async function processVideoFrame(
+  frame: Buffer,
+  context: string
+): Promise<string> {
+  // Send the frame as an image to a fast vision model
+  const result = await generateText({
+    model: openai("gpt-4o-mini"),  // Use the fastest model for real-time
+    messages: [
+      {
+        role: "system",
+        content: `You are analyzing a live video feed. ${context}. Be extremely concise — one sentence max.`,
+      },
+      {
+        role: "user",
+        content: [
+          { type: "image", image: frame },
+          { type: "text", text: "What do you see? Any changes from normal?" },
+        ],
+      },
+    ],
+    maxTokens: 50,  // Keep responses very short for real-time
+  });
+
+  return result.text;
+}
+
+// Process at 1 frame per second (balance cost vs responsiveness)
+// At $0.003/image with GPT-4o-mini, 1 fps = $0.18/minute = $10.80/hour
+// Only process frames when something changes (motion detection first)
+```
+
+The cost of real-time vision adds up fast. Use motion detection or change detection to filter frames *before* sending them to the LLM. Only analyze frames where something actually changed.
+
+---
+
+## 11. Video Generation
+
+Video generation from AI is emerging rapidly but is not yet at the same maturity level as image generation or text generation. Here is what you need to know as an engineer evaluating it for products.
+
+### 11.1 The Current Landscape
+
+Several providers offer video generation APIs or are approaching general availability:
+
+| Provider | Model | Status (early 2026) | Strength |
+|----------|-------|---------------------|----------|
+| OpenAI | Sora | Limited availability | Photorealistic scenes, text understanding |
+| Runway | Gen-3 Alpha | Available via API | Fast iteration, good motion |
+| Kling | Kling 1.6 | API available | Long-form video, consistent characters |
+| Google | Veo 2 | Limited access | Integration with Google Cloud |
+| Pika | Pika 2.0 | API available | Stylized content, effects |
+
+### 11.2 API Patterns for Video Generation
+
+Video generation APIs follow image generation patterns but add a temporal dimension:
+
+```typescript
+// video-generation-pattern.ts — conceptual API pattern
+
+interface VideoGenerationRequest {
+  prompt: string;
+  duration: number;          // seconds (typically 4-16s)
+  resolution: "720p" | "1080p";
+  fps: 24 | 30;
+  aspectRatio: "16:9" | "9:16" | "1:1";
+  referenceImage?: Buffer;   // optional: start from this image
+}
+
+interface VideoGenerationResponse {
+  id: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  videoUrl?: string;
+  duration: number;
+  estimatedTimeMs: number;   // generation takes minutes, not seconds
+}
+
+// Key differences from image generation:
+// 1. Async by default — video generation takes 1-10 minutes
+// 2. Much more expensive — $0.10-$1.00+ per video vs $0.04 per image
+// 3. Less controllable — temporal consistency is hard
+// 4. Longer prompts matter — describe motion, not just a scene
+```
+
+### 11.3 Current Limitations
+
+Be honest with stakeholders about what video generation can and cannot do today:
+
+- **Consistency**: Characters and objects may change appearance between frames
+- **Physics**: Motion often looks unnatural (hands, water, fabric)
+- **Text in video**: Text rendering is unreliable
+- **Length**: Most models cap at 4-16 seconds per generation
+- **Control**: You describe what you want but have limited control over specifics
+- **Cost**: 10-100x more expensive per asset than image generation
+- **Speed**: Minutes per clip vs seconds per image
+
+### 11.4 When to Use Video Generation
+
+**Production-ready today**: Marketing mockups, social media content drafts, creative brainstorming, storyboarding, background ambient videos.
+
+**Experimental**: Product demos, training videos, personalized video content at scale.
+
+**Not ready**: Anything requiring precise control, brand consistency across clips, real-time generation, or legal/compliance accuracy.
+
+The space is moving fast. What's experimental in early 2026 may be production-ready by the time you read this. The API patterns, however, will remain similar -- async generation, polling for completion, and prompt engineering for temporal descriptions.
+
+---
+
+## 12. Key Takeaways
 
 1. **Vision is just another message type.** Send images as part of the content array alongside text. Same API pattern as text-only calls.
 

@@ -39,6 +39,7 @@ This chapter teaches you how to build that infrastructure. The centerpiece is th
 - The lethal trifecta revisited: how infrastructure prevents each leg
 - Permission boundaries that survive prompt injection
 - Complete Terraform examples for sandboxed agent infrastructure
+- Executing AI-generated code safely: Vercel Sandbox, E2B, Docker
 
 ### Related Chapters
 - **Ch 9 (The Agent Loop)** -- the agent pattern you are now isolating
@@ -1993,9 +1994,348 @@ function sendAlert(category: string, message: string) {
 
 ---
 
-## 11. What's Next
+## 11. Executing AI-Generated Code Safely
 
-You now know how to isolate agents at the infrastructure level. The OpenClaw pattern -- separate account, VPC endpoints, proxy-restricted internet, not internet-addressable, ephemeral execution -- provides defense-in-depth that survives prompt injection. You have the Terraform modules to build it and the monitoring to detect breaches.
+Everything in Sections 1-10 is about isolating agents that use predefined tools. But there is a harder problem: what happens when the agent *writes* code and you need to *run* it? This is not hypothetical. This is how Ramp's Glass enables "anyone can build anything in 5 minutes" -- the user describes what they want, the AI writes the code, and a sandbox executes it. It is the pattern behind data analysis agents, code interpreters, and no-code builders.
+
+The challenge: you are executing arbitrary code that did not exist until the LLM generated it. You cannot review it in advance. You cannot predict what it will do. You must assume it is hostile.
+
+### 11.1 The Execution Pattern
+
+```
+User describes task
+        |
+        v
+LLM generates code (TypeScript, Python, SQL, etc.)
+        |
+        v
+Validation layer (syntax check, blocked patterns, size limits)
+        |
+        v
+Sandbox executes code (isolated from host, network, filesystem)
+        |
+        v
+Capture output (stdout, stderr, return values, generated files)
+        |
+        v
+Return results to user (formatted by LLM if needed)
+```
+
+### 11.2 Sandbox Options
+
+There are three serious options for executing AI-generated code. Each has different trade-offs.
+
+**Vercel Sandbox: Ephemeral Firecracker MicroVMs**
+
+Vercel Sandbox runs each code execution in a Firecracker microVM -- the same technology that powers AWS Lambda. Each VM boots in milliseconds, runs the code, and is destroyed. There is no state between executions. The VM has no network access by default and a constrained filesystem.
+
+```typescript
+// vercel-sandbox-execution.ts
+
+async function executeInVercelSandbox(code: string): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}> {
+  const sandbox = await Sandbox.create({
+    // Resource limits
+    timeoutMs: 10_000,        // Kill after 10 seconds
+    memoryMB: 256,            // 256MB max memory
+    // Network policy
+    network: "none",           // No network access
+    // Filesystem
+    readOnlyRootFs: true,      // Cannot modify the base filesystem
+    workDir: "/tmp/workspace", // Writable scratch space
+  });
+
+  try {
+    // Write the generated code to a file in the sandbox
+    await sandbox.writeFile("/tmp/workspace/script.ts", code);
+
+    // Execute it
+    const result = await sandbox.exec("npx", ["tsx", "/tmp/workspace/script.ts"]);
+
+    return {
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+    };
+  } finally {
+    // Sandbox is destroyed -- no state persists
+    await sandbox.destroy();
+  }
+}
+```
+
+**E2B: Cloud Sandboxes for AI Agents**
+
+E2B provides cloud sandboxes specifically designed for AI-generated code execution. They support multiple languages, persistent filesystem within a session, and fine-grained resource control.
+
+```typescript
+// e2b-execution.ts
+import { Sandbox } from "e2b";
+
+async function executeWithE2B(code: string, language: "typescript" | "python") {
+  const sandbox = await Sandbox.create({
+    template: language === "typescript" ? "node" : "python",
+    timeoutMs: 30_000,
+  });
+
+  try {
+    if (language === "typescript") {
+      await sandbox.filesystem.write("/home/user/script.ts", code);
+      const result = await sandbox.process.start({
+        cmd: "npx tsx /home/user/script.ts",
+        timeout: 10_000,
+      });
+      await result.wait();
+      return { stdout: result.output.stdout, stderr: result.output.stderr };
+    } else {
+      await sandbox.filesystem.write("/home/user/script.py", code);
+      const result = await sandbox.process.start({
+        cmd: "python /home/user/script.py",
+        timeout: 10_000,
+      });
+      await result.wait();
+      return { stdout: result.output.stdout, stderr: result.output.stderr };
+    }
+  } finally {
+    await sandbox.close();
+  }
+}
+```
+
+**Docker-Based Sandboxing (Self-Hosted)**
+
+If you need to run this on your own infrastructure, Docker with strict security profiles is the self-hosted option. Note the use of `execFile` rather than `exec` -- this avoids shell injection by passing arguments as an array instead of a string.
+
+```typescript
+// docker-sandbox.ts
+import { execFile } from "node:child_process";
+import { writeFile, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
+async function executeInDocker(code: string): Promise<{
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}> {
+  // Create a temp directory for the code
+  const tempDir = await mkdtemp(join(tmpdir(), "sandbox-"));
+
+  try {
+    // Write the code to a file
+    await writeFile(join(tempDir, "script.ts"), code);
+
+    // Run in Docker with strict isolation -- execFile prevents shell injection
+    const { stdout, stderr } = await execFileAsync("docker", [
+      "run",
+      "--rm",                              // Remove container after exit
+      "--network=none",                    // No network access
+      "--read-only",                       // Read-only root filesystem
+      "--tmpfs=/tmp:noexec,size=64m",      // Writable /tmp, no execution, 64MB max
+      "--memory=256m",                     // 256MB memory limit
+      "--cpus=0.5",                        // Half a CPU core
+      "--pids-limit=50",                   // Max 50 processes
+      "--security-opt=no-new-privileges",  // Cannot escalate privileges
+      "--cap-drop=ALL",                    // Drop all Linux capabilities
+      `-v=${tempDir}:/workspace:ro`,       // Mount code as read-only
+      "node:20-slim",                      // Minimal Node.js image
+      "npx", "tsx", "/workspace/script.ts",
+    ], {
+      timeout: 15_000, // Kill after 15 seconds
+    });
+
+    return { stdout, stderr, exitCode: 0 };
+  } catch (error: unknown) {
+    const err = error as { stdout?: string; stderr?: string; code?: number };
+    return {
+      stdout: err.stdout ?? "",
+      stderr: err.stderr ?? "Execution failed",
+      exitCode: err.code ?? 1,
+    };
+  } finally {
+    // Clean up the temp directory
+    await rm(tempDir, { recursive: true, force: true });
+  }
+}
+```
+
+### 11.3 Building a Code Execution Tool for an Agent
+
+The real power comes when you wire code execution into an agent's tool set. The agent can write code, run it, inspect the output, fix bugs, and iterate -- all within the sandbox.
+
+```typescript
+// code-execution-tool.ts
+import Anthropic from "@anthropic-ai/sdk";
+
+const anthropic = new Anthropic();
+
+// Define the code execution tool
+const codeExecutionTool: Anthropic.Tool = {
+  name: "execute_code",
+  description:
+    "Execute TypeScript code in an isolated sandbox. " +
+    "Use this to perform calculations, data transformations, " +
+    "or generate outputs. The sandbox has no network access " +
+    "and limited resources. Code should write results to stdout.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      code: {
+        type: "string",
+        description: "TypeScript code to execute. Must be self-contained.",
+      },
+      description: {
+        type: "string",
+        description: "Brief description of what this code does (for audit logging).",
+      },
+    },
+    required: ["code", "description"],
+  },
+};
+
+// Pre-execution validation
+function validateCode(code: string): { valid: boolean; reason?: string } {
+  // Size limit: reject extremely large code
+  if (code.length > 50_000) {
+    return { valid: false, reason: "Code exceeds 50KB size limit" };
+  }
+
+  // Block dangerous patterns
+  const blocked = [
+    { pattern: /require\s*\(\s*['"]child_process['"]\s*\)/, name: "child_process import" },
+    { pattern: /require\s*\(\s*['"]cluster['"]\s*\)/, name: "cluster import" },
+    { pattern: /process\.exit/, name: "process.exit" },
+    { pattern: /process\.kill/, name: "process.kill" },
+    { pattern: /eval\s*\(/, name: "eval()" },
+    { pattern: /Function\s*\(/, name: "Function constructor" },
+  ];
+
+  for (const { pattern, name } of blocked) {
+    if (pattern.test(code)) {
+      return { valid: false, reason: `Code contains blocked pattern: ${name}` };
+    }
+  }
+
+  return { valid: true };
+}
+
+// The agent loop with code execution
+async function agentWithCodeExecution(userTask: string) {
+  const messages: Anthropic.MessageParam[] = [
+    { role: "user", content: userTask },
+  ];
+
+  const systemPrompt = `You are a helpful assistant that can execute TypeScript code to complete tasks.
+When the user asks you to calculate, transform data, or produce output, write TypeScript code and use the execute_code tool.
+The sandbox has no network access. Write results to console.log().
+If code fails, read the error, fix the code, and try again (up to 3 attempts).`;
+
+  while (true) {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 4096,
+      system: systemPrompt,
+      tools: [codeExecutionTool],
+      messages,
+    });
+
+    // If the model is done, return its final message
+    if (response.stop_reason === "end_turn") {
+      const textBlock = response.content.find(b => b.type === "text");
+      return textBlock ? (textBlock as { text: string }).text : "Done.";
+    }
+
+    // Process tool calls
+    const toolUseBlocks = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+    );
+
+    // Add the assistant's response
+    messages.push({ role: "assistant", content: response.content });
+
+    for (const toolUse of toolUseBlocks) {
+      const { code, description } = toolUse.input as { code: string; description: string };
+
+      // Audit log
+      console.log(`[AUDIT] Code execution requested: ${description}`);
+
+      // Validate
+      const validation = validateCode(code);
+      if (!validation.valid) {
+        messages.push({
+          role: "user",
+          content: [{
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: `Execution blocked: ${validation.reason}. Rewrite without the blocked pattern.`,
+            is_error: true,
+          }],
+        });
+        continue;
+      }
+
+      // Execute in sandbox (use whichever sandbox from 11.2)
+      const result = await executeInDocker(code);
+
+      messages.push({
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result.exitCode === 0
+            ? result.stdout
+            : `Exit code ${result.exitCode}\nStdout: ${result.stdout}\nStderr: ${result.stderr}`,
+          is_error: result.exitCode !== 0,
+        }],
+      });
+    }
+  }
+}
+
+// Usage
+const answer = await agentWithCodeExecution(
+  "Calculate the compound interest on $10,000 at 7% annual rate over 30 years, " +
+  "compounding monthly. Show me a table of the balance at each 5-year mark."
+);
+console.log(answer);
+```
+
+### 11.4 Resource Limits Reference
+
+| Resource | Recommended Limit | Why |
+|----------|------------------|-----|
+| CPU time | 10-30 seconds | Prevents infinite loops and crypto mining |
+| Memory | 256-512MB | Prevents memory bombs |
+| Disk | 64-128MB (tmpfs) | Prevents disk filling |
+| Network | None (default) | Prevents data exfiltration and attacks |
+| Processes | 50 max | Prevents fork bombs |
+| File descriptors | 1024 | Prevents descriptor exhaustion |
+| Output size | 1MB stdout + 1MB stderr | Prevents memory exhaustion in the host |
+
+For data analysis tasks where the code needs to read input data, pass it as a file mounted read-only into the sandbox. Never give the sandbox network access to fetch data -- fetch the data in your trusted host process and mount it in.
+
+### 11.5 When to Use Each Sandbox
+
+| | Vercel Sandbox | E2B | Docker (Self-Hosted) |
+|---|---------------|-----|---------------------|
+| **Setup** | Zero (managed) | Zero (managed) | Medium (maintain images) |
+| **Boot time** | ~100ms | ~500ms | ~1-2s |
+| **Isolation** | Firecracker microVM | Cloud VM | Container (weaker) |
+| **Cost** | Pay per execution | Pay per second | Your compute |
+| **Best for** | Production code execution | Multi-language, persistent sessions | Self-hosted, air-gapped |
+| **Network control** | Yes | Yes | Yes |
+
+---
+
+## 12. What's Next
+
+You now know how to isolate agents at the infrastructure level. The OpenClaw pattern -- separate account, VPC endpoints, proxy-restricted internet, not internet-addressable, ephemeral execution -- provides defense-in-depth that survives prompt injection. You have the Terraform modules to build it and the monitoring to detect breaches. And you know how to safely execute AI-generated code in sandboxes -- from managed solutions like Vercel Sandbox and E2B to self-hosted Docker isolation.
 
 But all this infrastructure is manual. Every deployment is a human process: build the container, push to ECR, update the task definition, verify the deployment. If someone pushes a prompt change that degrades agent quality, you won't know until users complain. If someone introduces a security regression, you won't catch it until the next audit.
 
@@ -2012,3 +2352,4 @@ In Chapter 56, we will build the **CI/CD pipeline for AI applications**. This in
 5. **File system isolation (read-only root + noexec tmpfs)** prevents an agent from persisting malicious code or writing executable files.
 6. **The cost of isolation is trivial** compared to the cost of a security incident. ~$200-500/month for the full OpenClaw pattern.
 7. **Adopt incrementally.** Start with application-level controls (Level 1), add container isolation (Level 2), then network and account isolation (Levels 3-4) as your agent's capabilities and risk profile grow.
+8. **AI-generated code execution requires the strictest sandboxing.** Use Firecracker microVMs (Vercel Sandbox), cloud sandboxes (E2B), or locked-down Docker containers. Always validate before executing, always kill after a timeout, and never give network access by default.

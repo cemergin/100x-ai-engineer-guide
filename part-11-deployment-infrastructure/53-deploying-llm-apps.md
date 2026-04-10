@@ -1288,7 +1288,323 @@ vercel --prod
 
 ---
 
-## 10. What's Next
+## 10. Exposing AI as an API
+
+### 10.1 When You Need an AI API
+
+Everything so far in this chapter deploys AI features for YOUR application's users. But sometimes you need to expose your AI capabilities as an API for OTHER services to consume: internal microservices that need classification, partner integrations that need your RAG pipeline, or a platform where third-party developers build on top of your AI features.
+
+This is a different problem. Your consumers are not browsers -- they are other servers. They need predictable schemas, authentication, rate limiting per client, and the ability to handle both fast responses and long-running agent tasks.
+
+### 10.2 Sync vs Async: Two Patterns for AI APIs
+
+**Synchronous (streaming):** The client sends a request and holds the connection open while the AI generates a response. Good for generation tasks under 60 seconds.
+
+**Asynchronous (webhook):** The client sends a request, gets back a job ID immediately, and receives the result later via webhook callback or polling. Required for agent tasks that take minutes.
+
+Most AI APIs need both patterns. Use sync for simple generation, async for agent workflows.
+
+### 10.3 A Complete AI API with Hono
+
+Here is a production-ready AI API that exposes both sync and async patterns. Hono is used here because it runs on any runtime (Node.js, Bun, Cloudflare Workers, Vercel), but the patterns apply to Express, Fastify, or any HTTP framework.
+
+```typescript
+// src/server.ts — AI API with sync and async endpoints
+import { Hono } from "hono";
+import { streamText, generateText } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { stream } from "hono/streaming";
+import { bearerAuth } from "hono/bearer-auth";
+import { z } from "zod";
+
+const app = new Hono();
+
+// --- Authentication & Rate Limiting ---
+
+// Token budget per API client (in a real system, stored in a database)
+const clientBudgets = new Map<string, { tokensUsed: number; limit: number }>([
+  ["client-abc-token", { tokensUsed: 0, limit: 1_000_000 }],
+  ["client-xyz-token", { tokensUsed: 0, limit: 500_000 }],
+]);
+
+// Simple bearer auth — production systems use JWT or API key lookup
+app.use("/api/*", bearerAuth({ verifyToken: (token) => clientBudgets.has(token) }));
+
+// --- In-memory job store (use Redis or a database in production) ---
+
+interface AgentJob {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  task: string;
+  result?: string;
+  error?: string;
+  createdAt: number;
+  completedAt?: number;
+  webhookUrl?: string;
+}
+
+const jobs = new Map<string, AgentJob>();
+
+// --- POST /api/generate — Sync, streaming response ---
+
+const generateSchema = z.object({
+  prompt: z.string().min(1).max(10_000),
+  system: z.string().optional(),
+  maxTokens: z.number().int().min(1).max(4096).default(1024),
+});
+
+app.post("/api/generate", async (c) => {
+  const body = await c.req.json();
+  const parsed = generateSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.flatten() }, 400);
+  }
+
+  const { prompt, system, maxTokens } = parsed.data;
+
+  const result = streamText({
+    model: anthropic("claude-sonnet-4-20250514"),
+    system: system || "You are a helpful assistant.",
+    prompt,
+    maxTokens,
+  });
+
+  // Stream the response as Server-Sent Events
+  return stream(c, async (stream) => {
+    c.header("Content-Type", "text/event-stream");
+    c.header("Cache-Control", "no-cache");
+
+    for await (const chunk of result.textStream) {
+      await stream.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
+    }
+    await stream.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  });
+});
+
+// --- POST /api/agent/run — Async, returns job ID ---
+
+const agentRunSchema = z.object({
+  task: z.string().min(1).max(50_000),
+  webhookUrl: z.string().url().optional(),
+});
+
+app.post("/api/agent/run", async (c) => {
+  const body = await c.req.json();
+  const parsed = agentRunSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid request", details: parsed.error.flatten() }, 400);
+  }
+
+  const { task, webhookUrl } = parsed.data;
+  const jobId = crypto.randomUUID();
+
+  const job: AgentJob = {
+    id: jobId,
+    status: "queued",
+    task,
+    webhookUrl,
+    createdAt: Date.now(),
+  };
+  jobs.set(jobId, job);
+
+  // Process in background — do not await
+  processAgentJob(job);
+
+  return c.json({ jobId, status: "queued", pollUrl: `/api/agent/run/${jobId}` }, 202);
+});
+
+// --- GET /api/agent/run/:id — Poll for results ---
+
+app.get("/api/agent/run/:id", async (c) => {
+  const job = jobs.get(c.req.param("id"));
+  if (!job) {
+    return c.json({ error: "Job not found" }, 404);
+  }
+
+  return c.json({
+    id: job.id,
+    status: job.status,
+    result: job.result || null,
+    error: job.error || null,
+    createdAt: job.createdAt,
+    completedAt: job.completedAt || null,
+  });
+});
+
+// --- Background agent processing ---
+
+async function processAgentJob(job: AgentJob): Promise<void> {
+  job.status = "running";
+
+  try {
+    const result = await generateText({
+      model: anthropic("claude-sonnet-4-20250514"),
+      system: `You are an agent that completes tasks thoroughly. Provide your 
+final answer in a clear, structured format.`,
+      prompt: job.task,
+      maxTokens: 4096,
+    });
+
+    job.status = "completed";
+    job.result = result.text;
+    job.completedAt = Date.now();
+
+    // Send webhook notification if configured
+    if (job.webhookUrl) {
+      await notifyWebhook(job);
+    }
+  } catch (error) {
+    job.status = "failed";
+    job.error = error instanceof Error ? error.message : "Unknown error";
+    job.completedAt = Date.now();
+
+    if (job.webhookUrl) {
+      await notifyWebhook(job);
+    }
+  }
+}
+
+async function notifyWebhook(job: AgentJob): Promise<void> {
+  if (!job.webhookUrl) return;
+
+  try {
+    await fetch(job.webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jobId: job.id,
+        status: job.status,
+        result: job.result || null,
+        error: job.error || null,
+        completedAt: job.completedAt,
+      }),
+    });
+  } catch (err) {
+    console.error(`Webhook delivery failed for job ${job.id}:`, err);
+    // In production: retry with exponential backoff, dead-letter queue
+  }
+}
+
+// --- Health check ---
+
+app.get("/health", (c) => c.json({ status: "healthy", uptime: process.uptime() }));
+
+export default app;
+```
+
+### 10.4 Request/Response Schema Design
+
+Define your API with OpenAPI so consumers know exactly what to send and what they will get back:
+
+```yaml
+# Excerpt — key schemas for an AI API
+paths:
+  /api/generate:
+    post:
+      summary: Generate text (streaming)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [prompt]
+              properties:
+                prompt: { type: string, maxLength: 10000 }
+                system: { type: string }
+                maxTokens: { type: integer, default: 1024, maximum: 4096 }
+      responses:
+        "200":
+          description: SSE stream of generated text
+          content:
+            text/event-stream: {}
+
+  /api/agent/run:
+    post:
+      summary: Start an async agent task
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task]
+              properties:
+                task: { type: string }
+                webhookUrl: { type: string, format: uri }
+      responses:
+        "202":
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId: { type: string, format: uuid }
+                  status: { type: string, enum: [queued] }
+                  pollUrl: { type: string }
+
+  /api/agent/run/{id}:
+    get:
+      summary: Get agent job status and result
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string, enum: [queued, running, completed, failed] }
+                  result: { type: string, nullable: true }
+                  error: { type: string, nullable: true }
+```
+
+### 10.5 Per-Client Token Budgets
+
+AI APIs are expensive to operate. Unlike traditional APIs where a request costs fractions of a cent, a single AI request can cost $0.01-$1.00+. Rate limiting by requests-per-minute is not enough -- you need token-level budgets:
+
+```typescript
+// Middleware: enforce per-client token budgets
+app.use("/api/generate", async (c, next) => {
+  const token = c.req.header("Authorization")?.replace("Bearer ", "");
+  const budget = clientBudgets.get(token!);
+
+  if (!budget) return c.json({ error: "Unauthorized" }, 401);
+
+  if (budget.tokensUsed >= budget.limit) {
+    return c.json(
+      {
+        error: "Token budget exhausted",
+        used: budget.tokensUsed,
+        limit: budget.limit,
+        resetsAt: "2026-05-01T00:00:00Z", // monthly reset
+      },
+      429
+    );
+  }
+
+  await next();
+
+  // After the response, update the budget with actual usage
+  // (in production, get this from the LLM provider's usage metadata)
+});
+```
+
+### 10.6 The API Gateway Pattern
+
+When your AI API grows to support multiple models, agents, and capabilities, use a gateway pattern: one entry point that routes to the right backend.
+
+```
+Client → /api/ai/generate     → routes to Claude Sonnet (fast generation)
+Client → /api/ai/analyze      → routes to Claude Opus (complex analysis)
+Client → /api/ai/agent/run    → routes to agent service (long-running tasks)
+Client → /api/ai/embed        → routes to embedding service (vector generation)
+```
+
+This decouples consumers from implementation details. You can swap models, add providers, or split services without changing the client-facing API. See Ch 54 for the full API gateway pattern.
+
+---
+
+## 11. What's Next
 
 You have an AI application running in production. It is calling LLM providers, streaming responses, and serving users. But it is calling those providers directly -- every request hits OpenAI or Anthropic with no intermediary.
 

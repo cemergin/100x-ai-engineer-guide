@@ -29,6 +29,7 @@ Cost engineering isn't about being cheap. It's about being *intentional*. Every 
 - Token optimization: shorter prompts, fewer examples, structured output
 - Usage budgets: per-user, per-feature, per-team limits
 - Cost monitoring dashboards with real code
+- Per-tenant cost management: tracking, budgets, and model routing for SaaS
 
 ### Related Chapters
 - **Ch 0 (How LLMs Actually Work)** — spirals back: tokens cost money, context windows have limits
@@ -1297,7 +1298,183 @@ class CostOptimizedPipeline {
 
 ---
 
-## 9. Summary
+## 9. Per-Tenant Cost Management
+
+If you're building a SaaS product with AI features, you need to know what each customer costs you. Aggregate cost tracking tells you your total AI spend. Per-tenant cost tracking tells you which customers are profitable and which are burning money.
+
+### 9.1 Token Usage Tracking Per Tenant
+
+Every LLM call should be tagged with the tenant (customer) that triggered it:
+
+```typescript
+// TypeScript: Per-tenant token tracking
+
+interface TenantUsageEvent {
+  tenantId: string;
+  userId: string;
+  feature: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  cost: number;
+  timestamp: Date;
+}
+
+async function trackTenantUsage(event: TenantUsageEvent): Promise<void> {
+  // Write to your analytics database (BigQuery, ClickHouse, etc.)
+  await analyticsDb.insert("tenant_ai_usage", {
+    ...event,
+    // Pre-compute common aggregation dimensions
+    costBucket: event.cost < 0.01 ? "micro" : event.cost < 0.10 ? "small" : "large",
+    dayKey: event.timestamp.toISOString().split("T")[0],
+    monthKey: event.timestamp.toISOString().slice(0, 7),
+  });
+
+  // Update real-time counters (Redis)
+  const dayKey = `tenant:${event.tenantId}:cost:${event.timestamp.toISOString().split("T")[0]}`;
+  await redis.incrByFloat(dayKey, event.cost);
+  await redis.expire(dayKey, 90 * 86400); // 90-day retention
+}
+
+// Query: "How much did tenant X spend this month?"
+async function getTenantMonthlyCost(tenantId: string, month: string): Promise<{
+  totalCost: number;
+  byFeature: Record<string, number>;
+  byModel: Record<string, number>;
+  requestCount: number;
+}> {
+  return analyticsDb.query(`
+    SELECT
+      SUM(cost) as total_cost,
+      feature,
+      model,
+      COUNT(*) as request_count
+    FROM tenant_ai_usage
+    WHERE tenant_id = ? AND month_key = ?
+    GROUP BY feature, model
+  `, [tenantId, month]);
+}
+```
+
+### 9.2 Tenant-Level Usage Budgets and Alerts
+
+Different customers get different AI budgets based on their plan:
+
+```typescript
+// TypeScript: Per-tenant budget enforcement
+
+interface TenantAIBudget {
+  monthlyTokenLimit: number;
+  monthlyCostLimit: number;
+  dailyCostLimit: number;
+  alertAtPercent: number;
+  hardLimitAction: "block" | "downgrade_model" | "notify_only";
+}
+
+const TENANT_BUDGETS: Record<string, TenantAIBudget> = {
+  free: {
+    monthlyTokenLimit: 500_000,
+    monthlyCostLimit: 5.00,
+    dailyCostLimit: 0.50,
+    alertAtPercent: 80,
+    hardLimitAction: "block",
+  },
+  starter: {
+    monthlyTokenLimit: 5_000_000,
+    monthlyCostLimit: 50.00,
+    dailyCostLimit: 5.00,
+    alertAtPercent: 75,
+    hardLimitAction: "downgrade_model",
+  },
+  enterprise: {
+    monthlyTokenLimit: 100_000_000,
+    monthlyCostLimit: 1000.00,
+    dailyCostLimit: 100.00,
+    alertAtPercent: 70,
+    hardLimitAction: "notify_only",
+  },
+};
+
+async function enforceTenantBudget(
+  tenantId: string,
+  plan: string,
+  estimatedCost: number,
+): Promise<{ allowed: boolean; action?: string; model?: string }> {
+  const budget = TENANT_BUDGETS[plan];
+  const currentMonthCost = await getTenantMonthCost(tenantId);
+
+  if (currentMonthCost + estimatedCost > budget.monthlyCostLimit) {
+    switch (budget.hardLimitAction) {
+      case "block":
+        return { allowed: false, action: "budget_exceeded" };
+      case "downgrade_model":
+        return { allowed: true, action: "downgraded", model: "claude-haiku-4-20250414" };
+      case "notify_only":
+        await notifyTenantAdmin(tenantId, "AI budget exceeded");
+        return { allowed: true, action: "over_budget_notified" };
+    }
+  }
+
+  return { allowed: true };
+}
+```
+
+### 9.3 Model Routing Per Tier
+
+The most impactful cost lever for multi-tenant SaaS: route different customer tiers to different models.
+
+```typescript
+// TypeScript: Tier-based model routing
+
+function getModelForTenant(tenantId: string, plan: string, feature: string): string {
+  const modelMap: Record<string, Record<string, string>> = {
+    free: {
+      chat: "claude-haiku-4-20250414",
+      analysis: "claude-haiku-4-20250414",
+      code_review: "claude-haiku-4-20250414",  // free tier gets Haiku for everything
+    },
+    starter: {
+      chat: "claude-haiku-4-20250414",          // chat stays cheap
+      analysis: "claude-sonnet-4-20250514",     // analysis gets Sonnet
+      code_review: "claude-sonnet-4-20250514",
+    },
+    enterprise: {
+      chat: "claude-sonnet-4-20250514",
+      analysis: "claude-sonnet-4-20250514",
+      code_review: "claude-opus-4-20250514",    // enterprise gets Opus for code review
+    },
+  };
+
+  return modelMap[plan]?.[feature] ?? "claude-haiku-4-20250414";
+}
+```
+
+### 9.4 Cost Attribution in SaaS Products
+
+For SaaS pricing decisions, you need to know the cost-to-serve per tenant:
+
+```
+Tenant: Acme Corp (Enterprise plan, $500/month)
+  AI cost this month:     $127.43
+  Infrastructure cost:    $23.10 (proportional)
+  Total cost-to-serve:    $150.53
+  Revenue:                $500.00
+  Margin:                 69.9%   <- Healthy
+
+Tenant: BigCo Inc (Enterprise plan, $500/month)
+  AI cost this month:     $892.17   <- Heavy AI user
+  Infrastructure cost:    $45.20
+  Total cost-to-serve:    $937.37
+  Revenue:                $500.00
+  Margin:                 -87.5%  <- Losing money on this customer
+```
+
+When you can see this data, you can make informed decisions: raise the price, add usage tiers, set usage limits, or optimize the features that specific tenants use heavily.
+
+---
+
+## 10. Summary
 
 Cost engineering for AI systems comes down to five levers:
 

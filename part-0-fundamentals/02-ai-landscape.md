@@ -78,6 +78,25 @@ An important trend to understand: the separation of model creation from model ho
 
 This means for open-source models, you're choosing both a model AND an inference provider. Different providers offer different prices, latencies, and features.
 
+Here's a practical comparison of inference providers for open-source models:
+
+| Provider | Key Strength | Llama 3.1 70B Price (per 1M output) | Latency | Best For |
+|---|---|---|---|---|
+| **Together AI** | Wide model selection, easy fine-tuning | ~$0.90 | Medium | General open-source usage, fine-tuning |
+| **Fireworks AI** | Fast inference, good DX | ~$0.90 | Low | Speed-sensitive production apps |
+| **Groq** | Ultra-low latency (custom LPU chips) | ~$0.80 | Very low | Latency-critical apps, real-time |
+| **Replicate** | Simplest API, pay-per-second | Variable | Medium | Prototyping, image/video models |
+| **AWS Bedrock** | Enterprise integration, compliance | ~$1.30 | Medium | AWS-heavy teams, compliance needs |
+| **Azure AI** | Enterprise integration, compliance | ~$1.30 | Medium | Azure-heavy teams, compliance needs |
+
+**When to use an inference provider vs. a direct provider:**
+
+- **Use OpenAI/Anthropic/Google directly** when you want their proprietary models (GPT-4o, Claude, Gemini). There's no other way to access these.
+- **Use an inference provider** when you want to run open-source models (Llama, Mistral, Qwen) without managing your own GPUs. They handle the infrastructure; you get an API.
+- **Self-host** when you need full control, data sovereignty, or run at volumes where per-token pricing becomes more expensive than GPU rental.
+
+A common production pattern: use Claude or GPT-4o via their direct APIs for complex tasks, and Llama via Together AI or Fireworks for high-volume simple tasks. This gives you the best of both worlds — frontier quality where you need it, and cheap open-source inference at scale.
+
 ---
 
 ## 2. Pricing Models
@@ -132,7 +151,64 @@ Same scenario with Claude 3.5 Haiku:
 
 **The 20x rule:** Switching from a frontier model to a mini model often saves 15-30x in cost. For many tasks, the quality difference is negligible.
 
-### 2.3 Prompt Caching
+### 2.3 "Your First Month" Budget Estimation
+
+Here's what realistic AI costs look like for different team sizes. These are ballpark estimates to help you plan — your actual costs depend on your specific usage patterns.
+
+**Solo developer / Prototyping**
+```
+Model: GPT-4o-mini (primary) + GPT-4o (occasional complex tasks)
+Usage: ~500 API calls/day, testing and iterating
+
+GPT-4o-mini:  ~2M tokens/day × $0.15/$0.60    ≈ $1.50/day
+GPT-4o:       ~200K tokens/day × $2.50/$10.00  ≈ $2.50/day
+Embeddings:   ~1M tokens/day × $0.02            ≈ $0.02/day
+──────────────────────────────────────────────────────────────
+Total:        ~$4/day → ~$120/month
+
+Plus: Vector DB (Pinecone starter: free tier or $70/month)
+Plus: Eval runs (~$20/month)
+
+Estimated monthly budget: $150-250/month
+```
+
+**Startup (10-50 users, early product)**
+```
+Model: Claude Sonnet 4 (primary) + Claude 3.5 Haiku (simple tasks)
+Usage: ~5,000 conversations/day
+
+Claude Sonnet 4:  ~20M tokens/day × $3.00/$15.00  ≈ $360/day
+Claude 3.5 Haiku: ~10M tokens/day × $0.80/$4.00    ≈ $48/day
+Embeddings:       ~5M tokens/day × $0.02             ≈ $0.10/day
+──────────────────────────────────────────────────────────────────
+Total:            ~$408/day → ~$12,250/month
+
+Plus: Vector DB (Pinecone standard: $70-250/month)
+Plus: Eval infrastructure: ~$200/month
+
+Estimated monthly budget: $12,000-15,000/month
+```
+
+**Enterprise (thousands of users, production scale)**
+```
+Model: Multi-model strategy with routing
+Usage: ~100,000+ conversations/day
+
+With smart model routing (80% Haiku, 15% Sonnet, 5% Opus):
+  Claude 3.5 Haiku:  ~200M tokens/day × $0.80/$4.00    ≈ $960/day
+  Claude Sonnet 4:   ~30M tokens/day × $3.00/$15.00     ≈ $540/day  
+  Claude Opus 4:     ~10M tokens/day × $15.00/$75.00    ≈ $900/day
+  Embeddings:        ~50M tokens/day × $0.02              ≈ $1/day
+──────────────────────────────────────────────────────────────────────
+Total:               ~$2,400/day → ~$72,000/month
+
+Without routing (all Sonnet): ~$5,400/day → ~$162,000/month
+Savings from routing: ~$90,000/month
+```
+
+The enterprise numbers illustrate why **model routing** (Ch 49) is one of the highest-ROI optimizations you can build. Sending every request to a frontier model when 80% of them could be handled by Haiku is like taking a limousine to every destination including the corner store.
+
+### 2.4 Prompt Caching
 
 Most providers now offer **prompt caching** — if your input starts with the same prefix as a recent request, the cached portion is charged at a discounted rate (typically 50-90% off input token costs).
 
@@ -155,7 +231,7 @@ With caching:
 
 Anthropic's prompt caching charges 90% less for cached input tokens. OpenAI's caching offers 50% off. Google provides automatic caching for free on qualifying requests.
 
-### 2.4 Self-Hosted Costs
+### 2.5 Self-Hosted Costs
 
 Running open-source models yourself has a different cost structure:
 
@@ -185,7 +261,7 @@ Self-hosting does NOT make sense when:
 - You don't have ML infrastructure experience
 - You need the best quality (frontier closed models still lead)
 
-### 2.5 Batch API Pricing
+### 2.6 Batch API Pricing
 
 Most providers offer **batch APIs** — submit a batch of requests and get results hours later at 50% off. Useful for:
 
@@ -222,21 +298,63 @@ Rate limits are typically expressed as:
 
 **Note:** These are approximate and change frequently. Always check the provider's documentation.
 
-### 3.3 How Rate Limits Affect Your Architecture
+### 3.3 What Happens When You Hit Rate Limits
+
+When you exceed a rate limit, the API returns an HTTP 429 ("Too Many Requests") error. Here's what that looks like in practice and why it matters:
+
+```
+Your app gets 100 simultaneous users.
+Your RPM limit is 60.
+
+0:00 - Requests 1-60: ✅ Success
+0:00 - Requests 61-100: ❌ HTTP 429 "Rate limit exceeded"
+       Header: retry-after: 12
+       
+Without handling: 40 users see an error. Bad UX.
+With retry logic: Those 40 requests wait 12 seconds, then retry. Users see a delay.
+With a queue: All 100 requests enter a queue, processed at 60/minute. Max wait: ~40 seconds.
+```
+
+The key insight: rate limits aren't theoretical — they'll hit you the first time your app gets real traffic. And they don't just affect your app's reliability; they affect your architecture from the start.
+
+### 3.4 How Rate Limits Shape Your Architecture
 
 Rate limits aren't just an annoyance — they shape how you build:
 
-**You need retry logic.** When you hit a rate limit, the API returns a 429 error. You need to catch it and retry after a delay. Exponential backoff is the standard pattern. (We'll implement this in Ch 3.)
+**You need retry logic with exponential backoff.** When you hit a rate limit, catch the 429 error and retry after a delay. Each subsequent retry doubles the wait time. This is the standard pattern:
 
-**You need request queuing.** If 100 users hit your app simultaneously, you can't forward 100 API calls at once if your RPM is 60. You need a queue.
+```
+Attempt 1: fails with 429
+  Wait 1 second
+Attempt 2: fails with 429
+  Wait 2 seconds
+Attempt 3: fails with 429
+  Wait 4 seconds
+Attempt 4: succeeds ✅
+```
 
-**You might need multiple providers.** If one provider's rate limits are too low, you can fall back to another. This is called **provider failover** and we cover it in Ch 54.
+We'll implement this properly in Ch 3. The Vercel AI SDK handles basic retries automatically, but you'll want to customize the behavior for production.
 
-**Batch when possible.** Instead of 100 individual requests, can you batch them into fewer, larger requests? Or use the batch API?
+**You need request queuing.** If 100 users hit your app simultaneously, you can't forward 100 API calls at once if your RPM is 60. You need a queue that processes requests at a sustainable rate. Without one, your app will either error out or become unpredictable under load.
 
-**Cache aggressively.** If many users ask the same question, cache the response. Don't waste rate-limited API calls on duplicate requests.
+**You might need multiple providers.** If one provider's rate limits are too low, you can fall back to another. This is called **provider failover**. When OpenAI returns a 429, route to Anthropic. When Anthropic is slow, route to Google. We cover this in Ch 54.
 
-### 3.4 Rate Limit Headers
+**Batch when possible.** Instead of 100 individual requests, can you batch them into fewer, larger requests? Or use the batch API for non-real-time work?
+
+**Cache aggressively.** If many users ask the same question, cache the response. Don't waste rate-limited API calls on duplicate requests. A simple cache can reduce your effective API call volume by 30-60%.
+
+**Plan for your scaling milestones.** Map out when you'll hit rate limit walls:
+
+```
+Growth stages and rate limit implications:
+
+Stage 1 (0-100 users):     Free tier limits are fine. Focus on building.
+Stage 2 (100-1,000 users): You'll need Tier 1-2 limits. Add payment, track usage.
+Stage 3 (1,000-10,000):    You'll need Tier 3-4 or custom limits. Add queuing, caching.
+Stage 4 (10,000+):         Contact provider sales for enterprise limits. Add multi-provider failover.
+```
+
+### 3.5 Rate Limit Headers
 
 Most providers return rate limit information in response headers:
 
@@ -359,7 +477,77 @@ console.log(response.content[0].text);
 
 **The recommendation:** Use the Vercel AI SDK as your primary SDK. Use provider-specific SDKs when you need provider-specific features.
 
-### 4.5 Installing the SDKs
+### 4.5 The Same Task, Three SDKs
+
+To make the differences concrete, here's the exact same task — "summarize a paragraph" — implemented with each SDK. Notice how the Vercel AI SDK lets you swap providers with one line change, while the provider SDKs have different response structures.
+
+**Vercel AI SDK (recommended):**
+
+```typescript
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+
+const { text } = await generateText({
+  model: openai("gpt-4o"),
+  system: "You are a helpful assistant. Summarize the given text in one sentence.",
+  prompt: "TypeScript is a strongly typed programming language that builds on JavaScript...",
+});
+
+console.log(text);
+// To switch to Claude, change ONE line:
+// model: anthropic("claude-sonnet-4-20250514"),
+```
+
+**OpenAI SDK (provider-specific):**
+
+```typescript
+import OpenAI from "openai";
+
+const client = new OpenAI();
+
+const response = await client.chat.completions.create({
+  model: "gpt-4o",
+  messages: [
+    { role: "system", content: "You are a helpful assistant. Summarize the given text in one sentence." },
+    { role: "user", content: "TypeScript is a strongly typed programming language that builds on JavaScript..." },
+  ],
+});
+
+console.log(response.choices[0].message.content);
+// To switch to Claude, you need a DIFFERENT SDK with a DIFFERENT API shape
+```
+
+**Anthropic SDK (provider-specific):**
+
+```typescript
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic();
+
+const response = await client.messages.create({
+  model: "claude-sonnet-4-20250514",
+  max_tokens: 1024,
+  system: "You are a helpful assistant. Summarize the given text in one sentence.",
+  messages: [
+    { role: "user", content: "TypeScript is a strongly typed programming language that builds on JavaScript..." },
+  ],
+});
+
+console.log(response.content[0].text);
+// Note: system prompt is a top-level parameter, not a message
+// Note: max_tokens is REQUIRED (OpenAI makes it optional)
+// Note: response.content is an array of content blocks, not a string
+```
+
+Notice the differences:
+- **Response shape**: OpenAI uses `response.choices[0].message.content`, Anthropic uses `response.content[0].text`, Vercel AI SDK uses `text` (destructured, clean)
+- **System prompt**: OpenAI puts it in the messages array, Anthropic puts it as a top-level parameter, Vercel AI SDK accepts both
+- **Required fields**: Anthropic requires `max_tokens`, OpenAI doesn't. Vercel AI SDK handles defaults per-provider
+- **Switching providers**: With Vercel AI SDK, change one import and one string. With provider SDKs, rewrite the entire call
+
+This is why we recommend the Vercel AI SDK as your primary tool. The provider-agnostic interface means your application code doesn't change when you switch models, which makes multi-provider strategies trivial to implement.
+
+### 4.6 Installing the SDKs
 
 Here's what you'll install in Chapter 3:
 
@@ -419,6 +607,52 @@ Q1: Do you need AI that knows YOUR specific data?
          │
          └─ Your data IS the product → Fine-tune a model (Ch 44-47)
               (you need the model to "speak your language" natively)
+```
+
+Here's a more detailed flowchart for the decisions you'll actually face in practice:
+
+```
+START: "I want to add AI to my product"
+│
+├─ Q1: Is this a one-off task (data migration, content generation batch)?
+│  ├─ YES → Use the batch API or a script with retries.
+│  │        Pick the cheapest model that works. Done.
+│  │
+│  └─ NO → Q2: Is this user-facing and real-time?
+│     │
+│     ├─ YES → Q3: Does the user need to have a conversation (multi-turn)?
+│     │  │
+│     │  ├─ YES → Q4: Does it need to know your company's data?
+│     │  │  ├─ YES → Chat + RAG (Ch 6 + Ch 14-17)
+│     │  │  └─ NO  → Chat with system prompt (Ch 6)
+│     │  │
+│     │  └─ NO → Q5: What kind of task?
+│     │     ├─ Classification/routing     → API + structured output (Ch 5)
+│     │     ├─ Data extraction            → API + schemas (Ch 5)
+│     │     ├─ Content generation         → API + good prompts (Ch 4)
+│     │     └─ Multi-step workflow        → Agent with tools (Ch 8-13)
+│     │
+│     └─ NO (backend/async) → Q6: Volume?
+│        ├─ Low (<1K/day)    → Direct API calls, any model
+│        ├─ Medium (1K-100K) → Queue + mini model + caching
+│        └─ High (100K+)     → Consider self-hosting open source
+│
+│ CROSS-CUTTING QUESTIONS:
+│
+├─ "Do we need data privacy?"
+│  ├─ YES → Self-host open source OR use enterprise API tier with DPA
+│  └─ NO  → Use API (simpler, cheaper to start)
+│
+├─ "Do we need the model to match our brand voice/style?"
+│  ├─ Somewhat → System prompts + few-shot examples (Ch 4)
+│  ├─ Very much → Fine-tune (Ch 44-47)
+│  └─ Not really → Default model behavior is fine
+│
+└─ "What's our budget?"
+   ├─ <$100/month  → Mini models only, cache everything
+   ├─ $100-$1K     → Mix of mini and standard models
+   ├─ $1K-$10K     → Standard models, start optimizing
+   └─ $10K+        → Full model routing, consider enterprise agreements
 ```
 
 ### 5.3 The Right Choice for Most Teams
@@ -728,6 +962,33 @@ Tool calling (function calling) is now standard across all major providers. The 
 ### 10.5 Price Wars
 
 Model prices have dropped dramatically. GPT-4-level quality that cost $30/1M output tokens in 2024 now costs $0.60/1M with mini models. This changes the economics — AI features that were too expensive for low-revenue users are now viable.
+
+To put this in perspective:
+
+```
+The cost of "GPT-4 level" quality over time:
+
+Early 2023:  $60.00 per 1M output tokens (GPT-4)
+Late 2023:   $30.00 per 1M output tokens (GPT-4 Turbo)
+Mid 2024:    $10.00 per 1M output tokens (GPT-4o)
+Late 2024:   $0.60  per 1M output tokens (GPT-4o-mini — comparable quality for simple tasks)
+2025-2026:   $0.40  per 1M output tokens (Gemini 2.0 Flash — competitive quality)
+
+That's a 150x price reduction in under 3 years.
+```
+
+This trend has practical implications. Features that were economically impossible 2 years ago (like AI-powered search for every user, or per-email summarization) are now pennies per user per month. If you last evaluated AI pricing more than 6 months ago, your numbers are probably wrong.
+
+### 10.6 Multimodal as Default
+
+Most major models now accept images, audio, and video as input alongside text. This isn't a niche feature anymore — it's expected. Use cases that used to require specialized computer vision or speech models can now be handled by a single multimodal LLM:
+
+- **Image understanding**: Upload a screenshot and ask "what's wrong with this UI?"
+- **Document processing**: Send a photo of a receipt and extract structured data
+- **Video analysis**: Provide video frames and get descriptions or answers about content
+- **Audio transcription + understanding**: Process meeting recordings end-to-end
+
+The Vercel AI SDK supports multimodal inputs across providers, so you can send images to GPT-4o, Claude, or Gemini with the same code pattern. We cover multimodal features in Ch 7.
 
 ---
 

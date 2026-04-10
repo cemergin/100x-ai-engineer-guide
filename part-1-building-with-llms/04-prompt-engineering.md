@@ -930,7 +930,235 @@ This is now a solid, production-ready prompt. It handles edge cases, produces co
 
 ---
 
-## 8. Quick Reference: Prompt Patterns
+## 8. Prompt Management at Scale
+
+### 8.1 Prompts Are First-Class Artifacts
+
+In a production codebase with dozens of AI features, prompts stop being "strings in code" and become critical artifacts that determine product behavior. When a single word change in a classifier prompt can shift accuracy by 5%, you need the same rigor you apply to database schemas or API contracts.
+
+Treat prompts as first-class artifacts:
+- **Stored centrally**, not scattered across route handlers and utility files
+- **Versioned explicitly**, not just via git commits on the file that contains them
+- **Tested automatically**, not manually by a developer eyeballing 3 outputs
+- **Deployed deliberately**, not silently changed in a code push
+
+### 8.2 Prompt Registries
+
+A prompt registry is a central store for all prompts with their versions, metadata, and configuration. It decouples prompts from the code that uses them, making it possible to update, test, and roll back prompts independently.
+
+```typescript
+// src/ai/prompts/registry.ts — a simple prompt registry
+
+interface PromptEntry {
+  id: string;
+  version: string;
+  template: string;
+  model: string;
+  temperature: number;
+  metadata: {
+    author: string;
+    description: string;
+    lastTested: string;
+    evalScore?: number;
+  };
+}
+
+class PromptRegistry {
+  private prompts = new Map<string, PromptEntry[]>(); // id → versions
+
+  register(entry: PromptEntry): void {
+    const versions = this.prompts.get(entry.id) || [];
+    if (versions.some((v) => v.version === entry.version)) {
+      throw new Error(`Prompt ${entry.id}@${entry.version} already registered`);
+    }
+    versions.push(entry);
+    this.prompts.set(entry.id, versions);
+  }
+
+  get(id: string, version?: string): PromptEntry {
+    const versions = this.prompts.get(id);
+    if (!versions || versions.length === 0) {
+      throw new Error(`Prompt not found: ${id}`);
+    }
+    if (version) {
+      const match = versions.find((v) => v.version === version);
+      if (!match) throw new Error(`Version ${version} not found for ${id}`);
+      return match;
+    }
+    // Return the latest version (last registered)
+    return versions[versions.length - 1];
+  }
+
+  listVersions(id: string): string[] {
+    return (this.prompts.get(id) || []).map((v) => v.version);
+  }
+}
+
+// Singleton registry
+export const registry = new PromptRegistry();
+
+// Register prompts at startup
+registry.register({
+  id: "support-classifier",
+  version: "2.1.0",
+  template: `You are a support ticket classifier...`,
+  model: "gpt-4o-mini",
+  temperature: 0,
+  metadata: {
+    author: "eng-team",
+    description: "Classifies support tickets into categories",
+    lastTested: "2026-04-08",
+    evalScore: 0.942,
+  },
+});
+```
+
+Usage in your application code:
+
+```typescript
+import { registry } from "../ai/prompts/registry";
+import { generateText } from "ai";
+import { openai } from "@ai-sdk/openai";
+
+async function classifyTicket(ticket: string) {
+  const prompt = registry.get("support-classifier"); // gets latest version
+
+  const result = await generateText({
+    model: openai(prompt.model),
+    temperature: prompt.temperature,
+    messages: [
+      { role: "system", content: prompt.template },
+      { role: "user", content: ticket },
+    ],
+  });
+
+  return result.text.trim();
+}
+```
+
+This pattern gives you a single place to find every prompt, swap versions without changing application logic, and log which version was used for each request (critical for debugging).
+
+### 8.3 Version Control for Prompts
+
+Git tracks changes to the file containing a prompt, but that is not the same as versioning the prompt itself. Use semantic versioning:
+
+- **Patch (v1.0.1):** Typo fixes, minor wording improvements that do not change behavior
+- **Minor (v1.1.0):** Added examples, new edge case handling, improved instructions -- same intent, better execution
+- **Major (v2.0.0):** Changed output format, new categories, different model, fundamentally different behavior
+
+Every version should have a changelog entry and eval results:
+
+```typescript
+/**
+ * support-classifier prompt
+ *
+ * v2.1.0 (2026-04-08) — Added SECURITY category, improved BILLING examples
+ *   Eval: 94.2% accuracy (up from 91.8%)
+ *
+ * v2.0.0 (2026-03-15) — Switched to JSON output format
+ *   Eval: 91.8% accuracy (format change, slight accuracy dip)
+ *
+ * v1.1.0 (2026-02-20) — Added edge case examples for mixed-category tickets
+ *   Eval: 93.1% accuracy (up from 88.5%)
+ *
+ * v1.0.0 (2026-01-10) — Initial version
+ *   Eval: 88.5% accuracy
+ */
+```
+
+### 8.4 Prompt Testing with Promptfoo
+
+[Promptfoo](https://www.promptfoo.dev/) is an open-source framework for automated prompt evaluation. It lets you define test cases, run them against prompt variants, and get a scorecard.
+
+Install and configure it:
+
+```bash
+npx promptfoo@latest init
+```
+
+Define your test cases in `promptfooconfig.yaml`:
+
+```yaml
+# promptfooconfig.yaml
+prompts:
+  - id: classifier-v2.0
+    raw: "You are a support ticket classifier... (v2.0.0 prompt)"
+  - id: classifier-v2.1
+    raw: "You are a support ticket classifier... (v2.1.0 prompt)"
+
+providers:
+  - openai:gpt-4o-mini
+
+tests:
+  - vars:
+      input: "I was charged twice this month"
+    assert:
+      - type: equals
+        value: "BILLING"
+  - vars:
+      input: "Dashboard shows 500 error"
+    assert:
+      - type: equals
+        value: "TECHNICAL"
+  - vars:
+      input: "Someone accessed my account from an unknown IP"
+    assert:
+      - type: equals
+        value: "SECURITY"
+  - vars:
+      input: "Can you add dark mode?"
+    assert:
+      - type: equals
+        value: "FEATURE"
+```
+
+Run the eval:
+
+```bash
+npx promptfoo@latest eval
+npx promptfoo@latest view  # opens a web UI with results
+```
+
+This gives you a side-by-side comparison of prompt versions with pass/fail rates, so you know before deploying whether a new prompt version is better or worse.
+
+### 8.5 A/B Testing Prompts in Production
+
+Even with good evals, synthetic test cases do not capture everything. A/B test prompts on real traffic to measure actual user outcomes:
+
+1. Route 50% of users to prompt v2.0 (control) and 50% to v2.1 (treatment)
+2. Log the variant used with every request
+3. Measure outcomes: user satisfaction, follow-up rate, task completion, error rate
+4. After statistical significance, promote the winner
+
+The key implementation detail: use consistent assignment so the same user always sees the same variant (covered in Section 4.4 above). Log the variant ID alongside every LLM call so you can correlate outcomes to prompt versions in your analytics.
+
+### 8.6 Rollback Strategies
+
+When a new prompt version degrades quality in production:
+
+1. **Immediate rollback:** Switch the registry to serve the previous version. Because prompts are decoupled from application code, this does not require a code deploy.
+2. **Gradual rollback:** If you are A/B testing, shift traffic back to 100% control.
+3. **Post-mortem:** Compare the failing version's eval scores to production behavior. Update your eval suite to cover the failure cases you missed.
+
+The prompt registry pattern makes rollbacks trivial -- change the version number, and the next request uses the old prompt. No redeployment needed if your registry supports runtime version selection (e.g., from a database or config service).
+
+### 8.7 The Prompt Lifecycle
+
+```
+draft → test → deploy → monitor → iterate
+
+1. DRAFT: Write or revise the prompt, give it a version number
+2. TEST:  Run evals (Promptfoo or custom), compare to previous version
+3. DEPLOY: Register the new version, A/B test against the current version
+4. MONITOR: Track accuracy, latency, cost, and user outcomes in production
+5. ITERATE: Use production data to improve the eval suite, then go to step 1
+```
+
+This is not waterfall -- it is a tight loop. A prompt that takes a week to go from draft to production is too slow. Aim for same-day iteration: write, eval, deploy behind a feature flag, measure, decide.
+
+---
+
+## 9. Quick Reference: Prompt Patterns
 
 | Pattern | When to Use | Example |
 |---|---|---|
@@ -945,7 +1173,7 @@ This is now a solid, production-ready prompt. It handles edge cases, produces co
 
 ---
 
-## 9. Key Takeaways
+## 10. Key Takeaways
 
 1. **System prompts are your most important tool.** Invest time in them. Be specific about role, format, constraints, and boundaries.
 

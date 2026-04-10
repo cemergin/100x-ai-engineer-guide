@@ -27,6 +27,8 @@ This is the foundation that everything in Part 3 builds on. RAG is just "search 
 5. Building a movie recommendation engine
 6. Scoring and ranking results
 7. Performance and cost considerations
+8. Embeddings in your database: pgvector in production
+9. Natural language to SQL
 
 ### Related Chapters
 
@@ -1242,6 +1244,490 @@ Semantic search is powerful but it's not always the right tool.
 
 ---
 
+## 8. Embeddings in Your Database: pgvector
+
+Section 4.3 showed the basics of pgvector. This section goes deeper — because for most production applications, pgvector is not just an option, it is the *right* option. Storing embeddings in your existing Postgres database alongside your relational data eliminates an entire category of operational complexity.
+
+### 8.1 Why One Database, Not Two
+
+When you use a dedicated vector database (Pinecone, Weaviate, Qdrant), you have two systems that need to stay in sync. Every time you update a product description, you update Postgres *and* Pinecone. Every time you delete a user, you delete from Postgres *and* Pinecone. Every deployment needs to handle both. Every backup needs to cover both. Every outage could be in either.
+
+With pgvector, your embeddings live in the same row as your relational data. One transaction. One backup. One connection pool. One deployment. For most applications under a few million vectors, this is strictly better.
+
+**Use pgvector when:**
+- You already have Postgres (most teams do)
+- Your vector count is under ~5 million
+- You need hybrid queries (SQL filters + vector similarity)
+- You want transactional consistency between data and embeddings
+- You want simpler infrastructure
+
+**Use a dedicated vector DB when:**
+- You have 10M+ vectors and need specialized sharding
+- You need sub-millisecond latency at scale
+- Your vectors change independently of your relational data
+- You need advanced features like multi-tenancy or built-in reranking
+
+### 8.2 Setting Up pgvector in Postgres
+
+If you're using a managed Postgres (Neon, Supabase, RDS), pgvector is usually available as an extension. For local development:
+
+```bash
+# Docker with pgvector pre-installed
+docker run --name pgvector-dev -e POSTGRES_PASSWORD=dev \
+  -p 5432:5432 -d pgvector/pgvector:pg16
+```
+
+Then enable the extension:
+
+```sql
+-- Run once per database
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+### 8.3 Designing Tables with Vector Columns
+
+The key insight: a vector column is just another column. It sits next to your regular columns and participates in normal SQL queries.
+
+```typescript
+// pgvector-schema.ts — production table design with Drizzle ORM
+import { pgTable, text, real, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { vector } from "drizzle-orm/pg-core"; // Drizzle has native pgvector support
+
+export const products = pgTable(
+  "products",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    category: text("category").notNull(),
+    price: real("price").notNull(),
+    inStock: integer("in_stock").notNull().default(0),
+    embedding: vector("embedding", { dimensions: 1536 }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("products_embedding_idx").using(
+      "hnsw",
+      table.embedding.op("vector_cosine_ops")
+    ),
+    index("products_category_idx").on(table.category),
+  ]
+);
+```
+
+Or with raw SQL if you're not using Drizzle:
+
+```sql
+CREATE TABLE products (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL,
+  price REAL NOT NULL,
+  in_stock INTEGER NOT NULL DEFAULT 0,
+  embedding vector(1536),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- HNSW index: better recall and query speed than IVFFlat, slightly more memory
+CREATE INDEX products_embedding_idx
+  ON products
+  USING hnsw (embedding vector_cosine_ops);
+
+-- Standard B-tree indexes for your WHERE clauses
+CREATE INDEX products_category_idx ON products (category);
+CREATE INDEX products_price_idx ON products (price);
+```
+
+### 8.4 Inserting Embeddings Alongside Regular Data
+
+```typescript
+// pgvector-insert.ts
+import { db } from "./db"; // Your Drizzle instance
+import { products } from "./schema";
+import OpenAI from "openai";
+
+const openai = new OpenAI();
+
+async function insertProduct(product: {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  inStock: number;
+}) {
+  // Generate embedding from the content you want to be searchable
+  const embeddingText = `${product.name}: ${product.description}`;
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: embeddingText,
+  });
+
+  const embedding = response.data[0].embedding;
+
+  // Insert everything in one statement — embedding alongside relational data
+  await db.insert(products).values({
+    ...product,
+    embedding,
+  }).onConflictDoUpdate({
+    target: products.id,
+    set: {
+      name: product.name,
+      description: product.description,
+      category: product.category,
+      price: product.price,
+      inStock: product.inStock,
+      embedding,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+// Batch insert with embeddings
+async function insertProducts(items: Array<{
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  inStock: number;
+}>) {
+  // Batch embed for efficiency
+  const texts = items.map(p => `${p.name}: ${p.description}`);
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: texts,
+  });
+
+  const values = items.map((item, i) => ({
+    ...item,
+    embedding: response.data[i].embedding,
+  }));
+
+  // Drizzle handles the batch insert
+  await db.insert(products).values(values);
+}
+```
+
+### 8.5 Hybrid Queries: WHERE Clause + Vector Similarity
+
+This is where pgvector shines over dedicated vector databases. You can combine standard SQL filtering with vector similarity search in a single query. No two-step process, no post-filtering, no keeping two systems in sync.
+
+```typescript
+// pgvector-hybrid.ts
+import { db } from "./db";
+import { products } from "./schema";
+import { sql, and, gte, eq, desc } from "drizzle-orm";
+import { cosineDistance, gt } from "drizzle-orm";
+import OpenAI from "openai";
+
+const openai = new OpenAI();
+
+async function searchProducts(
+  query: string,
+  filters: {
+    category?: string;
+    maxPrice?: number;
+    inStockOnly?: boolean;
+  } = {},
+  topK: number = 10
+) {
+  const response = await openai.embeddings.create({
+    model: "text-embedding-3-small",
+    input: query,
+  });
+  const queryEmbedding = response.data[0].embedding;
+
+  // Build WHERE conditions
+  const conditions = [];
+  if (filters.category) {
+    conditions.push(eq(products.category, filters.category));
+  }
+  if (filters.maxPrice) {
+    conditions.push(sql`${products.price} <= ${filters.maxPrice}`);
+  }
+  if (filters.inStockOnly) {
+    conditions.push(gt(products.inStock, 0));
+  }
+
+  // Cosine similarity score as a computed column
+  const similarity = sql<number>`1 - (${products.embedding} <=> ${JSON.stringify(queryEmbedding)}::vector)`;
+
+  const results = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      description: products.description,
+      category: products.category,
+      price: products.price,
+      inStock: products.inStock,
+      score: similarity,
+    })
+    .from(products)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(similarity))
+    .limit(topK);
+
+  return results;
+}
+
+// Usage: "comfortable office chair" under $500, in stock only
+const chairs = await searchProducts(
+  "comfortable ergonomic office chair for long coding sessions",
+  { category: "furniture", maxPrice: 500, inStockOnly: true }
+);
+```
+
+### 8.6 Index Types: IVFFlat vs HNSW
+
+pgvector supports two index types. The choice matters.
+
+| | IVFFlat | HNSW |
+|---|---------|------|
+| **Build time** | Faster | Slower (2-3x) |
+| **Query time** | Good | Better |
+| **Recall accuracy** | Good (tunable via `probes`) | Better out of the box |
+| **Memory usage** | Lower | Higher |
+| **Insert after build** | Requires periodic reindex | Handles inserts gracefully |
+| **Best for** | Static datasets, cost-sensitive | Dynamic data, query-sensitive |
+
+```sql
+-- IVFFlat: good for datasets that don't change often
+-- lists = sqrt(row_count) is a good starting point
+CREATE INDEX ON products
+  USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+
+-- At query time, increase probes for better recall (default is 1)
+SET ivfflat.probes = 10;
+
+-- HNSW: better for production with ongoing inserts
+-- m = connections per node (default 16), ef_construction = build quality (default 64)
+CREATE INDEX ON products
+  USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
+
+-- At query time, increase ef_search for better recall (default is 40)
+SET hnsw.ef_search = 100;
+```
+
+**The recommendation:** Use HNSW unless you have a specific reason not to. It handles dynamic data better and has higher recall out of the box. IVFFlat is cheaper on memory if you are running Postgres on a constrained instance.
+
+---
+
+## 9. Natural Language to SQL
+
+Semantic search finds documents by meaning. But sometimes the user is not looking for a document — they are looking for an *answer* that lives in a structured database. "How many orders did we get last week?" is not a search query. It is a SQL query waiting to be written.
+
+The pattern: a user asks a question in natural language, an LLM generates a SQL query, you execute it against your database, and the LLM formats the results into a human-readable answer. This is how tools like Ramp Research work internally — an AI that can answer questions about financial data by writing and running SQL.
+
+### 9.1 The Pattern
+
+```
+User question ──→ LLM generates SQL ──→ Execute query ──→ LLM formats results
+                    ▲                                          │
+                    │                                          ▼
+            Table schemas in                           Human-readable
+            system prompt                              answer
+```
+
+### 9.2 Building It: The System Prompt
+
+The LLM needs to know your schema to write correct SQL. Include the relevant table definitions in the system prompt.
+
+```typescript
+// nl-to-sql.ts
+import Anthropic from "@anthropic-ai/sdk";
+import pg from "pg";
+import { z } from "zod";
+
+const anthropic = new Anthropic();
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+// Your table schemas — include column types, constraints, and relationships
+const TABLE_SCHEMAS = `
+-- Orders table
+CREATE TABLE orders (
+  id SERIAL PRIMARY KEY,
+  customer_id INTEGER REFERENCES customers(id),
+  status TEXT CHECK (status IN ('pending', 'completed', 'cancelled', 'refunded')),
+  total_cents INTEGER NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Customers table
+CREATE TABLE customers (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  company TEXT,
+  plan TEXT CHECK (plan IN ('free', 'starter', 'pro', 'enterprise')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Line items table
+CREATE TABLE line_items (
+  id SERIAL PRIMARY KEY,
+  order_id INTEGER REFERENCES orders(id),
+  product_name TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  unit_price_cents INTEGER NOT NULL
+);
+`;
+
+const SYSTEM_PROMPT = `You are a SQL query generator. Given a user's question about their data, generate a PostgreSQL SELECT query to answer it.
+
+## Database Schema
+${TABLE_SCHEMAS}
+
+## Rules
+1. ONLY generate SELECT queries. Never generate INSERT, UPDATE, DELETE, DROP, ALTER, or any DDL/DML.
+2. Always use parameterized values where possible.
+3. Limit results to 100 rows unless the user asks for more.
+4. Use clear column aliases so results are readable.
+5. When dealing with money, divide cents by 100 and format as dollars.
+6. For date ranges, use the current timestamp as reference.
+
+## Output Format
+Respond with ONLY the SQL query. No explanation, no markdown code fences, just the raw SQL.`;
+```
+
+### 9.3 Safety: NEVER Execute Raw LLM SQL Without Validation
+
+This is critical. An LLM can be tricked (via prompt injection) or can hallucinate destructive queries. You must validate and sandbox every query.
+
+```typescript
+// sql-safety.ts
+
+// Validation: reject anything that isn't a SELECT
+function validateSelectOnly(sql: string): { valid: boolean; reason?: string } {
+  const normalized = sql.trim().toUpperCase();
+
+  // Must start with SELECT or WITH (for CTEs)
+  if (!normalized.startsWith("SELECT") && !normalized.startsWith("WITH")) {
+    return { valid: false, reason: "Query must start with SELECT or WITH" };
+  }
+
+  // Block dangerous keywords anywhere in the query
+  const blocked = [
+    "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE",
+    "CREATE", "GRANT", "REVOKE", "EXEC", "EXECUTE",
+    "INTO OUTFILE", "INTO DUMPFILE", "LOAD_FILE",
+    "pg_sleep", "pg_terminate_backend", "pg_cancel_backend",
+  ];
+
+  for (const keyword of blocked) {
+    // Use word boundary matching to avoid false positives
+    // ("SELECT status FROM orders" contains "DELETE" inside "SELECTED"? No, but be careful)
+    const regex = new RegExp(`\\b${keyword}\\b`, "i");
+    if (regex.test(sql)) {
+      return { valid: false, reason: `Query contains blocked keyword: ${keyword}` };
+    }
+  }
+
+  // Block multiple statements (SQL injection via semicolon)
+  // Remove semicolons inside string literals first, then check
+  const withoutStrings = sql.replace(/'[^']*'/g, "''");
+  if (withoutStrings.includes(";")) {
+    return { valid: false, reason: "Multiple statements not allowed" };
+  }
+
+  return { valid: true };
+}
+
+// Use a read-only database connection
+function createReadOnlyPool() {
+  return new pg.Pool({
+    connectionString: process.env.DATABASE_URL_READONLY, // Read replica or read-only user
+    // Set a statement timeout to prevent runaway queries
+    statement_timeout: 5000, // 5 seconds max
+  });
+}
+```
+
+### 9.4 The Complete Pipeline
+
+```typescript
+// nl-to-sql-pipeline.ts
+const readOnlyPool = createReadOnlyPool();
+
+async function askDatabase(question: string): Promise<string> {
+  // Step 1: Generate SQL from the user's question
+  const sqlResponse = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 1024,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: question }],
+  });
+
+  const generatedSql = (sqlResponse.content[0] as { type: "text"; text: string }).text.trim();
+  console.log("Generated SQL:", generatedSql);
+
+  // Step 2: Validate the SQL
+  const validation = validateSelectOnly(generatedSql);
+  if (!validation.valid) {
+    return `I generated a query that failed safety validation: ${validation.reason}. I can only run SELECT queries against the database.`;
+  }
+
+  // Step 3: Execute against read-only connection with timeout
+  let queryResult;
+  try {
+    // Set a row limit to prevent massive result sets
+    const limitedSql = generatedSql.includes("LIMIT")
+      ? generatedSql
+      : `${generatedSql} LIMIT 100`;
+
+    queryResult = await readOnlyPool.query(limitedSql);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    // Don't expose raw DB errors to user — could leak schema info
+    console.error("Query execution error:", message);
+    return "I wasn't able to run that query. The question might be ambiguous, or I may have generated incorrect SQL. Could you rephrase?";
+  }
+
+  // Step 4: Format results with LLM
+  const formatResponse = await anthropic.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2048,
+    system: "Format the following SQL query results into a clear, human-readable answer. Use tables for tabular data. Include totals where appropriate. Be concise.",
+    messages: [{
+      role: "user",
+      content: `Question: ${question}\n\nSQL: ${generatedSql}\n\nResults (${queryResult.rowCount} rows):\n${JSON.stringify(queryResult.rows, null, 2)}`,
+    }],
+  });
+
+  return (formatResponse.content[0] as { type: "text"; text: string }).text;
+}
+
+// Usage
+async function main() {
+  console.log(await askDatabase("How many orders did we get last week?"));
+  console.log(await askDatabase("Who are our top 5 customers by total spend?"));
+  console.log(await askDatabase("What's the average order value by plan type?"));
+}
+
+main();
+```
+
+### 9.5 Defense in Depth Checklist
+
+Natural language to SQL is powerful but dangerous. Here is your checklist:
+
+1. **Read-only database user.** The connection string should point to a user with only SELECT permissions. Even if validation fails, the database itself blocks writes.
+2. **Statement timeout.** Set `statement_timeout` to prevent `SELECT * FROM huge_table CROSS JOIN huge_table` from killing your database.
+3. **Row limits.** Always add LIMIT to prevent the LLM from returning millions of rows.
+4. **Query validation.** Parse the SQL and reject anything that is not a SELECT. Do this even with a read-only user — belt and suspenders.
+5. **No schema exposure.** Do not show raw database errors to end users. They can leak table names, column names, and data types.
+6. **Audit logging.** Log every generated query, the user who asked, and whether it was executed. You need this for security review.
+7. **Rate limiting.** Limit how many queries a user can run per minute. LLM-generated queries can be expensive.
+
+---
+
 ## Summary
 
 You now know how to:
@@ -1253,6 +1739,8 @@ You now know how to:
 5. **Build a real search engine** — the movie recommendation system
 6. **Score and rank results** — combined scoring, RRF, thresholds
 7. **Manage cost and performance** — caching, batch processing, model selection
+8. **Use pgvector in production** — store embeddings alongside relational data, hybrid queries, HNSW vs IVFFlat
+9. **Build natural language to SQL** — let users query databases in plain English, safely
 
 This is the foundation. In Chapter 15, we'll wrap this search capability in a full RAG pipeline — load documents, chunk them, embed them, store them, and retrieve them on demand.
 

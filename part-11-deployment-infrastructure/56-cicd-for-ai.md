@@ -30,6 +30,7 @@ This chapter builds the CI/CD pipeline for AI applications. You will run eval su
 - How Stripe's Minions handles CI for coding agents
 - Rolling releases and rollback strategies
 - Managing prompts as versioned artifacts
+- Traditional tests alongside evals: unit tests, mocks, snapshots, and the AI testing pyramid
 
 ### Related Chapters
 - **Ch 18-21 (Evals)** -- you built evals; now run them in CI
@@ -1932,7 +1933,308 @@ models:
 
 ---
 
-## 11. What's Next
+## 11. Traditional Tests for AI Applications
+
+The guide emphasizes evals over tests for AI behavior -- and that's right for LLM output quality. But your AI application is not *only* an LLM. It has tool functions, RAG pipelines, schema definitions, prompt templates, and integration code. All of that deterministic code needs traditional tests. Evals and tests are complementary, not competing.
+
+### 11.1 The Testing Pyramid for AI
+
+```
+                    ┌─────────────┐
+                    │    Evals    │  LLM behavior (non-deterministic)
+                    │  (expensive) │  "Did the model produce good output?"
+                    ├─────────────┤
+                  ┌─┤ Integration │  Pipeline tests (mostly deterministic)
+                  │ │   Tests     │  "Does retrieval + LLM + tools work together?"
+                  │ ├─────────────┤
+                ┌─┤ │  Unit Tests │  Function-level (fully deterministic)
+                │ │ │  (cheap)    │  "Does the tool function work correctly?"
+                │ │ └─────────────┘
+                │ │
+  Fast, cheap,  │ │  Slow, expensive,
+  deterministic │ │  non-deterministic
+```
+
+Run unit tests on every commit (seconds). Run integration tests on every PR (minutes). Run evals on PRs and merge-to-main (minutes to hours). This layered approach catches most bugs cheaply and reserves expensive LLM calls for what only LLMs can assess.
+
+### 11.2 Unit Testing Tool Functions
+
+When your agent calls a tool, the tool function itself is deterministic code. Test it like any other function -- without involving the LLM.
+
+```typescript
+// __tests__/tools/get-order-status.test.ts
+import { describe, it, expect, vi } from "vitest";
+import { getOrderStatus } from "../../src/tools/get-order-status";
+
+describe("getOrderStatus", () => {
+  it("returns order details for a valid order ID", async () => {
+    const mockDb = {
+      query: vi.fn().mockResolvedValue({
+        id: "ORD-12345678",
+        status: "shipped",
+        trackingNumber: "1Z999AA10123456784",
+        shippedAt: "2026-03-15",
+      }),
+    };
+
+    const result = await getOrderStatus({ orderId: "ORD-12345678" }, { db: mockDb });
+
+    expect(result.status).toBe("shipped");
+    expect(result.trackingNumber).toBeDefined();
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "ORD-12345678" })
+    );
+  });
+
+  it("returns a clear error for invalid order ID format", async () => {
+    const result = await getOrderStatus({ orderId: "invalid" }, { db: mockDb });
+
+    expect(result.error).toBe("Invalid order ID format");
+  });
+
+  it("returns not-found for nonexistent order", async () => {
+    const mockDb = {
+      query: vi.fn().mockResolvedValue(null),
+    };
+
+    const result = await getOrderStatus({ orderId: "ORD-99999999" }, { db: mockDb });
+
+    expect(result.error).toBe("Order not found");
+  });
+});
+```
+
+You are testing the tool function, not the LLM's decision to call it. Tool selection is an eval concern. Tool correctness is a unit test concern.
+
+### 11.3 Mocking LLM Responses for Deterministic CI
+
+When you need to test code that *calls* an LLM (not the LLM's behavior itself), mock the LLM response to make tests deterministic and free.
+
+```typescript
+// __tests__/pipelines/support-router.test.ts
+import { describe, it, expect, vi } from "vitest";
+import { routeSupportTicket } from "../../src/pipelines/support-router";
+
+// Mock the AI SDK
+vi.mock("ai", () => ({
+  generateObject: vi.fn(),
+}));
+
+import { generateObject } from "ai";
+const mockGenerateObject = vi.mocked(generateObject);
+
+describe("routeSupportTicket", () => {
+  it("routes billing issues to the billing team", async () => {
+    // Mock the LLM classification response
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        category: "billing",
+        priority: "medium",
+        sentiment: "frustrated",
+      },
+    });
+
+    const result = await routeSupportTicket("I was charged twice for my subscription");
+
+    expect(result.team).toBe("billing");
+    expect(result.priority).toBe("medium");
+    // We're testing the ROUTING LOGIC, not the LLM classification
+  });
+
+  it("escalates high-priority security issues immediately", async () => {
+    mockGenerateObject.mockResolvedValue({
+      object: {
+        category: "security",
+        priority: "critical",
+        sentiment: "urgent",
+      },
+    });
+
+    const result = await routeSupportTicket("Someone accessed my account without permission");
+
+    expect(result.team).toBe("security");
+    expect(result.escalated).toBe(true);
+    expect(result.notifyOnCall).toBe(true);
+  });
+});
+```
+
+### 11.4 Integration Testing RAG Pipelines
+
+Test that your retrieval pipeline works without calling the LLM. This isolates the embedding + vector search + chunking path.
+
+```typescript
+// __tests__/integration/retrieval-pipeline.test.ts
+import { describe, it, expect, beforeAll } from "vitest";
+import { VectorStore } from "../../src/lib/vector-store";
+import { embedQuery } from "../../src/lib/embeddings";
+import { chunkDocument } from "../../src/lib/chunking";
+
+describe("retrieval pipeline", () => {
+  let store: VectorStore;
+
+  beforeAll(async () => {
+    store = new VectorStore({ namespace: "test" });
+
+    // Index test documents
+    const docs = [
+      { id: "refund-policy", content: "We offer a 30-day money-back guarantee on all plans." },
+      { id: "pricing", content: "Starter plan is $9/month. Pro plan is $29/month." },
+      { id: "api-limits", content: "API rate limit is 1000 requests per minute for Pro." },
+    ];
+
+    for (const doc of docs) {
+      const chunks = chunkDocument(doc.content, { chunkSize: 200, overlap: 50 });
+      await store.upsert(doc.id, chunks);
+    }
+  });
+
+  it("retrieves refund policy for refund questions", async () => {
+    const results = await store.search("Can I get my money back?", { topK: 3 });
+
+    const docIds = results.map((r) => r.metadata.docId);
+    expect(docIds).toContain("refund-policy");
+  });
+
+  it("retrieves pricing for cost questions", async () => {
+    const results = await store.search("How much does it cost?", { topK: 3 });
+
+    const docIds = results.map((r) => r.metadata.docId);
+    expect(docIds).toContain("pricing");
+  });
+
+  it("does not retrieve unrelated documents", async () => {
+    const results = await store.search("What is the refund policy?", { topK: 3 });
+
+    const docIds = results.map((r) => r.metadata.docId);
+    expect(docIds).not.toContain("api-limits");
+  });
+});
+```
+
+### 11.5 Snapshot Testing Prompts
+
+Prompts change. Sometimes intentionally, sometimes by accident. Snapshot tests catch unintended prompt changes the same way they catch unintended UI changes.
+
+```typescript
+// __tests__/prompts/system-prompts.test.ts
+import { describe, it, expect } from "vitest";
+import { getSystemPrompt } from "../../src/lib/prompts";
+
+describe("system prompts", () => {
+  it("customer support prompt matches snapshot", () => {
+    const prompt = getSystemPrompt("customer-support");
+    expect(prompt).toMatchSnapshot();
+  });
+
+  it("code review prompt matches snapshot", () => {
+    const prompt = getSystemPrompt("code-review");
+    expect(prompt).toMatchSnapshot();
+  });
+
+  it("classification prompt matches snapshot", () => {
+    const prompt = getSystemPrompt("ticket-classification");
+    expect(prompt).toMatchSnapshot();
+  });
+});
+
+// When you intentionally change a prompt:
+// 1. Update the prompt
+// 2. Run `vitest --update` to update snapshots
+// 3. The PR diff shows exactly what changed in the prompt
+// 4. Reviewers can see the prompt diff alongside the eval results
+```
+
+### 11.6 Testing Structured Output Schemas
+
+If your Zod schemas change, your LLM output parsing breaks. Test that schemas are stable and backward-compatible.
+
+```typescript
+// __tests__/schemas/output-schemas.test.ts
+import { describe, it, expect } from "vitest";
+import { TicketClassification, OrderStatus, SupportResponse } from "../../src/schemas";
+
+describe("output schemas", () => {
+  it("TicketClassification accepts valid LLM output", () => {
+    const validOutput = {
+      category: "billing",
+      priority: "medium",
+      sentiment: "frustrated",
+      summary: "Customer was charged twice",
+    };
+
+    const result = TicketClassification.safeParse(validOutput);
+    expect(result.success).toBe(true);
+  });
+
+  it("TicketClassification rejects invalid category", () => {
+    const invalidOutput = {
+      category: "unknown-category",
+      priority: "medium",
+      sentiment: "frustrated",
+      summary: "test",
+    };
+
+    const result = TicketClassification.safeParse(invalidOutput);
+    expect(result.success).toBe(false);
+  });
+
+  it("OrderStatus schema is backward compatible", () => {
+    // This fixture represents output from the previous schema version
+    // If this test breaks, you've made a breaking schema change
+    const previousVersionOutput = {
+      orderId: "ORD-12345678",
+      status: "shipped",
+      estimatedDelivery: "2026-03-20",
+    };
+
+    const result = OrderStatus.safeParse(previousVersionOutput);
+    expect(result.success).toBe(true);
+  });
+});
+```
+
+### 11.7 Putting Tests and Evals Together
+
+In your CI pipeline, tests and evals run at different stages:
+
+```yaml
+# In your GitHub Actions workflow (from section 3):
+jobs:
+  # Stage 1: Fast, deterministic, cheap
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npx vitest run --reporter=verbose
+    # Tests tool functions, schemas, prompts, mocks
+    # No API keys needed, no LLM calls
+    # Runs in ~30 seconds
+
+  # Stage 2: Integration tests (may need API keys for embeddings)
+  integration-tests:
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - run: npx vitest run --project integration
+    # Tests RAG pipeline, embedding search, chunking
+    # May call embedding API (cheap) but not LLM API
+    # Runs in ~2 minutes
+
+  # Stage 3: Evals (expensive, non-deterministic)
+  eval-smoke:
+    needs: [unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - run: npx tsx evals/run.ts --suite smoke
+    # Calls LLM API, costs money, non-deterministic
+    # Runs in ~5 minutes
+```
+
+The rule of thumb: if you can test it without an LLM, use a test. If you need an LLM to judge quality, use an eval. Most AI applications have more testable code than people realize -- tool functions, routing logic, schema validation, prompt construction, and pipeline orchestration are all deterministic and testable.
+
+---
+
+## 12. What's Next
 
 You now have a complete CI/CD pipeline for AI applications: evals run on every PR, prompt changes roll out through canary deployments, model versions are A/B tested, and feature flags give you instant control over AI capabilities. The pipeline catches regressions before they reach production and gives you rollback options when they do.
 
