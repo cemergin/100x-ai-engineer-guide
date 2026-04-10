@@ -1474,7 +1474,7 @@ When you can see this data, you can make informed decisions: raise the price, ad
 
 ---
 
-## 10. Summary
+## 10. Key Takeaways
 
 Cost engineering for AI systems comes down to five levers:
 

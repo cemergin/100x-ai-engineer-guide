@@ -12,7 +12,7 @@
 
 # Chapter 54: API Gateway & Provider Management
 
-> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 2, Ch 3, Ch 49, Ch 53 | Difficulty: Intermediate to Advanced
+> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 2, Ch 3, Ch 49, Ch 53 | Difficulty: Intermediate to Advanced | Language: TypeScript/Python
 
 In Chapter 53, you deployed your AI application. It is running in production, calling LLM providers, streaming responses to users. But every request goes directly from your application to OpenAI or Anthropic. There is no intermediary. No control plane. No safety net.
 

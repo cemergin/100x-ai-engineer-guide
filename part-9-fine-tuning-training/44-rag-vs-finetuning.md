@@ -333,7 +333,78 @@ for item in hybrid_example["rag_for"]:
     print(f"  - {item}")
 ```
 
-### 4.2 Implementation Pattern
+### 4.2 Real-World Decision Scenarios
+
+Let us walk through three concrete scenarios to see how the hybrid approach plays out in practice.
+
+```python
+scenarios = {
+    "Customer Support Bot": {
+        "description": "A bot answering questions about your SaaS product, handling billing, "
+                       "troubleshooting, and feature requests for 50K+ monthly users.",
+        "fine_tune_for": [
+            "Your brand's empathetic, professional tone",
+            "Structured response format: Acknowledge → Diagnose → Resolve → Follow-up",
+            "Understanding internal product terminology (e.g., 'workspace', 'pipeline', 'connector')",
+        ],
+        "rag_for": [
+            "Current pricing tiers and plan limits (changes quarterly)",
+            "Troubleshooting steps from your knowledge base (updated weekly)",
+            "Release notes and changelog entries",
+        ],
+        "why_not_rag_only": "RAG gives correct info but generic tone. Customers notice.",
+        "why_not_ft_only": "Product details change too often to bake into weights.",
+    },
+    "Code Assistant for Internal Codebase": {
+        "description": "A coding assistant that understands your company's internal libraries, "
+                       "naming conventions, and architecture patterns.",
+        "fine_tune_for": [
+            "Your team's coding style (TypeScript strict mode, specific patterns)",
+            "Internal library APIs that the base model has never seen",
+            "Code review comments in your team's voice",
+        ],
+        "rag_for": [
+            "README files and architecture docs (evolving)",
+            "Recent pull request discussions for context",
+            "API documentation for third-party services you use",
+        ],
+        "why_not_rag_only": "RAG cannot teach coding style. Model still writes generic code.",
+        "why_not_ft_only": "Codebase changes daily. Cannot retrain that often.",
+    },
+    "Medical Information Assistant": {
+        "description": "An assistant for clinicians that summarizes patient records and "
+                       "suggests relevant clinical guidelines.",
+        "fine_tune_for": [
+            "Medical terminology and abbreviations (CBC, BMP, CXR)",
+            "Structured clinical output format (SOAP notes)",
+            "Safety disclaimers and appropriate hedging language",
+        ],
+        "rag_for": [
+            "Current clinical practice guidelines (updated annually)",
+            "Drug interaction databases (updated continuously)",
+            "Patient-specific records (HIPAA-compliant local retrieval)",
+        ],
+        "why_not_rag_only": "Generic model misuses medical terms and lacks clinical reasoning format.",
+        "why_not_ft_only": "Guidelines and drug data change. Cannot have stale medical info.",
+    },
+}
+
+print("Hybrid Approach: Real-World Scenarios")
+print("=" * 70)
+for name, s in scenarios.items():
+    print(f"\n  {name}")
+    print(f"  {s['description'][:80]}")
+    print(f"  Fine-tune for:")
+    for item in s["fine_tune_for"]:
+        print(f"    - {item}")
+    print(f"  RAG for:")
+    for item in s["rag_for"]:
+        print(f"    - {item}")
+    print(f"  Why not RAG only: {s['why_not_rag_only']}")
+    print(f"  Why not FT only:  {s['why_not_ft_only']}")
+```
+
+### 4.3 Implementation Pattern
 
 ```python
 # Pseudo-code for a hybrid RAG + fine-tuned model system
@@ -546,7 +617,52 @@ print(f"  Self-hosted FT:        ${total_self_hosted:>8.2f}/month  |  ~200ms  | 
 print(f"  Hybrid (self-hosted):  ${total_hybrid:>8.2f}/month  |  ~300ms  |  4-5 weeks setup")
 ```
 
-### 5.2 Quality Comparison
+### 5.2 Scaling the Cost Comparison
+
+The cost picture changes dramatically at different volumes. Here is how the same options compare at 1K, 10K, and 100K queries per day.
+
+```python
+# Cost comparison at different scales
+
+scales = [1_000, 10_000, 100_000]
+
+print("Monthly Cost by Scale:")
+print("=" * 70)
+print(f"  {'Queries/day':<14} {'API+RAG':<14} {'API FT':<14} {'Self-hosted FT':<16} {'Hybrid'}")
+print("-" * 70)
+
+for daily in scales:
+    monthly = daily * 30
+    
+    # API + RAG: dominated by token costs (1500 input tokens per query with RAG context)
+    api_rag = monthly * (1500 * 0.15 / 1e6 + 200 * 0.60 / 1e6) + 25 + 5
+    
+    # API Fine-tuned: shorter prompts (500 tokens) but 2x per-token rate
+    api_ft = monthly * (500 * 0.30 / 1e6 + 200 * 1.20 / 1e6) + 25
+    
+    # Self-hosted: GPU cost is fixed (T4 for 1K-10K, 2xT4 for 100K)
+    if daily <= 10_000:
+        gpu_monthly = 0.50 * 24 * 30  # 1x T4 always-on
+    else:
+        gpu_monthly = 1.00 * 24 * 30  # 2x T4 or 1x A10G
+    self_hosted = gpu_monthly + 10
+    
+    # Hybrid: self-hosted FT + local vector DB
+    hybrid = gpu_monthly + 20
+    
+    print(f"  {daily:>10,}/day  ${api_rag:>10,.2f}  ${api_ft:>10,.2f}  ${self_hosted:>12,.2f}  ${hybrid:>10,.2f}")
+
+print("""
+Key observations:
+  - At 1K queries/day: API is cheapest, self-hosted GPU is overkill
+  - At 10K queries/day: Costs converge, self-hosted starts to win
+  - At 100K queries/day: Self-hosted is 3-5x cheaper than API
+  - The API FT option is often the cheapest API path (shorter prompts)
+  - Hybrid (self-hosted FT + local RAG) has the best cost at high volume
+""")
+```
+
+### 5.3 Quality Comparison
 
 ```python
 # Quality comparison across different scenarios
@@ -834,6 +950,49 @@ Step 6: Decide based on numbers
   - Choose. Ship. Iterate.
 """
 print(evaluation_process)
+```
+
+### 7.3 The One-Week Test
+
+Before committing to a full fine-tuning project (which can take weeks), run a one-week test that validates your approach with minimal investment.
+
+```python
+one_week_test = """
+The One-Week RAG vs Fine-Tuning Validation Plan:
+
+Day 1-2: Build your evaluation set
+  - 50 question/answer pairs covering your target use cases
+  - Include 10 easy, 30 medium, 10 hard/edge cases
+  - Have a domain expert grade the expected answers
+
+Day 3: Baseline — test with prompting alone
+  - Use the best available API model with a well-crafted system prompt
+  - Run all 50 eval pairs
+  - Score each on accuracy (0-2) and style (0-2)
+  - This is your baseline. Record the total score.
+
+Day 4: Test RAG
+  - Index your documents with a simple embedding model
+  - Build a basic RAG pipeline (retrieve top-5, stuff into prompt)
+  - Run all 50 eval pairs
+  - Score. Compare to baseline.
+
+Day 5: Test fine-tuning (lightweight)
+  - Take 50-100 examples from your domain (can be manually written)
+  - Fine-tune GPT-3.5 or a 7B open model with LoRA (takes ~30 minutes)
+  - Run all 50 eval pairs
+  - Score. Compare to baseline and RAG.
+
+Day 6-7: Analyze and decide
+  - Which approach won on your eval set?
+  - Where did each approach fail?
+  - Is hybrid worth the added complexity?
+  - Make a go/no-go decision with real data.
+
+Total investment: 1 engineer-week
+What you avoid: months building the wrong system
+"""
+print(one_week_test)
 ```
 
 ---

@@ -12,7 +12,7 @@
 
 # Chapter 33: Skills, Plugins & Distribution
 
-> Part 6: Anatomy of AI Developer Tools · Phase 2 · Prerequisites: Ch 23, Ch 25, Ch 27 · Advanced · TypeScript + Architecture
+> **Part 6 — Anatomy of AI Developer Tools** | Phase 2: Become an Expert | Prerequisites: Ch 23, Ch 25, Ch 27 | Difficulty: Advanced | Language: TypeScript + Architecture
 
 Skills are prompts. This is the most important sentence in this chapter. Despite the sophisticated loading mechanisms, frontmatter metadata, and distribution systems, a skill is ultimately a block of markdown text that gets injected into the model's context. Understanding this -- and understanding the engineering systems built around this simple idea -- is the difference between writing skills that sometimes work and writing skills that consistently guide agent behavior.
 
@@ -514,6 +514,82 @@ performance            │
 
 Each skill makes the agent better at its task, which produces cleaner sessions, which produce better patterns, which produce better skills.
 
+### 4.4 Magic Docs: Self-Updating Documentation via Subagents
+
+Skillify generates skills from sessions. But the leak revealed a related and arguably more practical pattern: **Magic Docs** -- files that update their own documentation automatically.
+
+The mechanism is straightforward. Any file that contains a special `MAGIC DOC` header is registered as a self-updating document. When Claude Code is idle (no active user interaction), a dedicated background subagent reads the file, evaluates whether the documentation is stale relative to the codebase, updates it, and writes the result back.
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                  MAGIC DOC LIFECYCLE                       │
+│                                                            │
+│  1. REGISTRATION                                           │
+│     File contains MAGIC DOC header                         │
+│     ├── Harness discovers file at session start            │
+│     └── Adds to the magic doc watch list                   │
+│                                                            │
+│  2. IDLE TRIGGER                                           │
+│     ├── User has not sent a message for N seconds          │
+│     ├── No tool calls are in flight                        │
+│     └── Background subagent is spawned                     │
+│                                                            │
+│  3. SCOPED UPDATE                                          │
+│     ├── Subagent reads the magic doc file                  │
+│     ├── Subagent reads relevant source files               │
+│     ├── Subagent updates ONLY the magic doc file           │
+│     └── Tool restrictions: can edit ONE file only          │
+│                                                            │
+│  4. RESULT                                                 │
+│     └── Documentation stays current without anyone         │
+│         remembering to run an update command                │
+└───────────────────────────────────────────────────────────┘
+```
+
+The critical design choice is the **tool restriction**. The subagent responsible for updating a magic doc is allowed to edit only that single file. It cannot modify source code, create new files, or make changes elsewhere in the project. This scope constraint is what makes the pattern safe. Without it, a documentation-update agent could drift into "helpful" refactors or style fixes that nobody asked for.
+
+**Why this matters:** Documentation rot is one of the oldest problems in software engineering. Every team has a README that was accurate six months ago. Magic Docs solve this by making documentation a side effect of the agent's idle time rather than a task that requires human discipline.
+
+**Practical lesson for your own agents.** This pattern is easy to replicate:
+
+```typescript
+// Magic doc update pattern
+interface MagicDocConfig {
+  filePath: string;
+  sourceGlobs: string[];    // Files the doc should reflect
+  updateInterval: number;   // Minimum seconds between updates
+}
+
+async function updateMagicDoc(
+  config: MagicDocConfig,
+  spawnSubagent: SubagentSpawner
+): Promise<void> {
+  const agent = await spawnSubagent({
+    task: `Read ${config.filePath} and the source files matching 
+           ${config.sourceGlobs.join(', ')}. Update the documentation 
+           in ${config.filePath} to accurately reflect the current 
+           state of those source files. Do not change any other files.`,
+    
+    // THE KEY CONSTRAINT: restrict tool access to one file
+    tools: {
+      Read: { allowed: true },          // Can read anything
+      Glob: { allowed: true },          // Can discover files
+      Grep: { allowed: true },          // Can search content
+      Edit: { 
+        allowed: true,
+        fileRestriction: [config.filePath]  // Can ONLY edit this file
+      },
+      Write: { allowed: false },        // No creating new files
+      Bash:  { allowed: false },        // No shell commands
+    },
+  });
+  
+  await agent.run();
+}
+```
+
+The principle generalizes beyond documentation. Any time you have a background agent that should maintain a specific artifact -- a changelog, a dependency report, a coverage summary -- scope its tool access to that artifact. Broad permissions on background agents are how you get unintended changes that silently diverge from the main line of work.
+
 ---
 
 ## 5. Plugin Architecture: Hooks, MCP Bundling, Settings
@@ -716,6 +792,109 @@ const hook: HookDefinition = {
   }
 };
 ```
+
+### 5.6 The Full Plugin Lifecycle: Five Phases
+
+The hook system described in 5.2 covers PreToolUse, PostToolUse, and Stop. But analysis of the claw-code-agent reimplementation (which reverse-engineered Claude Code's plugin architecture into `plugin_runtime.py`) reveals that the complete plugin lifecycle has **five phases**, not three. The additional phases handle session boundaries -- the moments when plugin state must be saved, restored, or transferred.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│             THE FIVE PLUGIN LIFECYCLE PHASES               │
+│                                                           │
+│  1. BEFORE-PROMPT                                         │
+│     ├── Fires before the system prompt is assembled       │
+│     ├── Plugin can inject content into the system prompt  │
+│     ├── Plugin can modify tool definitions                │
+│     └── Use case: add dynamic context, adjust tools       │
+│         based on current project state                    │
+│                                                           │
+│  2. AFTER-TURN                                            │
+│     ├── Fires after each model turn completes             │
+│     ├── Plugin sees the model's response and tool results │
+│     ├── Can inject guidance BACK into the transcript      │
+│     └── Use case: logging, analytics, corrective feedback │
+│                                                           │
+│  3. RESUME                                                │
+│     ├── Fires when a session is resumed from disk         │
+│     ├── Plugin restores its own state from saved data     │
+│     ├── Can re-initialize connections (MCP, databases)    │
+│     └── Use case: reconnect to services, restore caches   │
+│                                                           │
+│  4. PERSIST                                               │
+│     ├── Fires when a session is being saved               │
+│     ├── Plugin serializes its state for later resume      │
+│     ├── State is stored alongside session transcript      │
+│     └── Use case: save plugin-specific data across        │
+│         session boundaries                                │
+│                                                           │
+│  5. DELEGATE                                              │
+│     ├── Fires when a sub-agent is being spawned           │
+│     ├── Plugin decides what context to pass to child      │
+│     ├── Can modify the child's tool set or permissions    │
+│     └── Use case: propagate plugin state to sub-agents,   │
+│         restrict child capabilities                       │
+└──────────────────────────────────────────────────────────┘
+```
+
+Phases 1 and 2 (before-prompt and after-turn) run on every turn. Phases 3 and 4 (resume and persist) run at session boundaries. Phase 5 (delegate) runs when the agent spawns children.
+
+### 5.7 Tool Aliases, Virtual Tools, and Tool-Result Guidance
+
+The plugin system goes beyond intercepting tool calls. claw-code-agent's parity checklist reveals three additional capabilities that give plugins deep control over the tool layer:
+
+**Tool aliases** let a plugin rename an existing tool. A plugin can expose `SearchCode` as an alias for `Grep`, making the agent's tool vocabulary match the team's terminology. The underlying implementation is the same -- the alias just translates the name before dispatch.
+
+**Virtual tools** are tool definitions registered by the plugin that have no built-in implementation. The plugin itself handles execution via a PreToolUse hook that intercepts calls to the virtual tool name. This is how plugins create entirely new capabilities without modifying the harness core.
+
+**Tool blocking** lets a plugin declare that certain tools should not be available during its activation. A security-focused plugin might block `Bash` entirely, forcing the agent to use safer alternatives.
+
+**Tool-result guidance** is the most subtle capability. After a tool executes, the plugin can inject guidance text back into the transcript alongside the tool result. The model sees this guidance as part of the tool's output and adjusts its behavior accordingly.
+
+```typescript
+// Tool-result guidance example
+const codeQualityPlugin = {
+  afterTurn: async (context) => {
+    // After an Edit tool completes, inject quality guidance
+    for (const toolResult of context.toolResults) {
+      if (toolResult.toolName === 'Edit') {
+        toolResult.guidance = 
+          'Reminder: run tests after editing source files. ' +
+          'Check that the edit did not break imports.';
+      }
+    }
+  }
+};
+
+// What the model sees in the transcript:
+// tool_result: "File edited successfully."
+// [Plugin guidance: "Reminder: run tests after editing
+//  source files. Check that the edit did not break imports."]
+```
+
+This is a powerful pattern because it is invisible to the user but visible to the model. The plugin shapes agent behavior without cluttering the UI.
+
+### 5.8 Plugin Session-State Persistence
+
+Plugins maintain their own state across sessions through the persist/resume lifecycle phases. Each plugin gets a namespaced storage slot in the session data:
+
+```typescript
+// Plugin state persistence (conceptual)
+interface PluginState {
+  // Each plugin gets its own namespace
+  [pluginName: string]: {
+    // Plugin-defined state, serialized to JSON
+    data: Record<string, unknown>;
+    // Last persist timestamp
+    persistedAt: Date;
+    // Plugin version that created this state
+    version: string;
+  };
+}
+```
+
+This means a plugin that tracks which files have been reviewed can persist that list across sessions. A cost-tracking plugin can accumulate spend across multiple sessions. A security plugin can remember which commands were previously approved by the user.
+
+The resume phase is where this gets interesting. When a session resumes, the plugin receives its saved state and decides whether it is still valid. A plugin connected to an MCP server might need to re-establish that connection. A plugin that cached file hashes might need to verify they have not changed on disk. The resume hook is the plugin's opportunity to reconcile saved state with current reality.
 
 ---
 

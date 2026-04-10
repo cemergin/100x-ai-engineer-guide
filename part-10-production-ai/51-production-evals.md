@@ -1298,7 +1298,7 @@ async function evaluateAlertRules(
 
 ---
 
-## 8. Summary
+## 8. Key Takeaways
 
 Production eval pipelines transform evals from a manual quality check into automated infrastructure that continuously validates your AI features.
 

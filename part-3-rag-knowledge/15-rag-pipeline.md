@@ -12,7 +12,7 @@
 
 # Chapter 15: The RAG Pipeline
 
-> Part 3: RAG & Knowledge Systems · Phase 1: Get Dangerous · Prerequisites: Ch 14, Ch 10 · Difficulty: Intermediate · Language: TypeScript
+> **Part 3 — RAG & Knowledge Systems** | Phase 1: Get Dangerous | Prerequisites: Ch 14, Ch 10 | Difficulty: Intermediate | Language: TypeScript
 
 In Chapter 14 you built semantic search — give it a query, get back similar items. But real-world AI applications need more than search. They need to load documents from files, URLs, and APIs. They need to split those documents into chunks small enough for an LLM's context window. They need to embed those chunks, store them, and retrieve the right ones at query time. Then — and this is the "generation" part — they need to pass those chunks to an LLM and get an answer.
 
@@ -1600,7 +1600,7 @@ main();
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now have a complete RAG pipeline:
 

@@ -1167,7 +1167,7 @@ ADOPTION (Ch 23)
 
 ---
 
-## 17. Chapter Summary
+## 17. Key Takeaways
 
 AI adoption is organizational engineering, not technology deployment. The Ramp playbook works because it treats AI as a platform problem, not a tool problem: build a great product (Glass), share knowledge automatically (Dojo), remove every constraint (no limits), and create the conditions for compounding improvement (leaderboards, office hours, all-hands demos).
 

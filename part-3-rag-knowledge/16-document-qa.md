@@ -12,7 +12,7 @@
 
 # Chapter 16: Document QA Systems
 
-> Part 3: RAG & Knowledge Systems · Phase 1: Get Dangerous · Prerequisites: Ch 15, Ch 5 · Difficulty: Intermediate · Language: TypeScript
+> **Part 3 — RAG & Knowledge Systems** | Phase 1: Get Dangerous | Prerequisites: Ch 15, Ch 5 | Difficulty: Intermediate | Language: TypeScript
 
 In Chapter 15 you built the RAG pipeline: load, chunk, embed, store, retrieve, generate. That pipeline worked on text files. But real companies don't keep their knowledge in tidy `.txt` files. It's in PDFs. In YouTube training videos. In Confluence pages and Notion databases. In Google Docs and Slack threads.
 
@@ -1299,7 +1299,7 @@ main();
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now have the tools to build a document QA system from real-world sources:
 

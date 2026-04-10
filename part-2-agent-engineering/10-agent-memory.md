@@ -12,7 +12,7 @@
 
 # Chapter 10: Agent Memory & State
 
-> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 6, Ch 9 | Difficulty: Intermediate → Advanced
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 6, Ch 9 | Difficulty: Intermediate → Advanced | Language: TypeScript
 
 In Chapter 9, you built an agent loop. The messages array is the agent's brain -- it remembers everything from the current conversation. But close the program and it's gone. Start a new conversation and the agent has no idea what happened five minutes ago. It can't learn from past mistakes. It can't remember your preferences. It can't pick up where it left off.
 

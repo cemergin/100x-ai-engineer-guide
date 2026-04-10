@@ -12,7 +12,7 @@
 
 # Chapter 28: Memory Systems: KAIROS & Beyond
 
-> Part 6: Anatomy of AI Developer Tools · Phase 2 · Prerequisites: Ch 10, Ch 23, Ch 27 · Advanced · TypeScript + Architecture
+> **Part 6 — Anatomy of AI Developer Tools** | Phase 2: Become an Expert | Prerequisites: Ch 10, Ch 23, Ch 27 | Difficulty: Advanced | Language: TypeScript + Architecture
 
 An LLM has no memory. Every time you call the API, the model starts fresh -- it does not know who you are, what project you are working on, or what you discussed five minutes ago. Everything the model "remembers" is something the harness explicitly puts into the context window. The quality of an AI developer tool is therefore directly proportional to the quality of its memory system: what it remembers, how it organizes memories, and when it decides to forget.
 

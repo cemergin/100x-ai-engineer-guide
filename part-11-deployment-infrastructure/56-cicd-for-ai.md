@@ -12,7 +12,7 @@
 
 # Chapter 56: CI/CD for AI Applications
 
-> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 18-21, Ch 22, Ch 53, Ch 55 | Difficulty: Intermediate to Advanced
+> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 18-21, Ch 22, Ch 53, Ch 55 | Difficulty: Intermediate to Advanced | Language: TypeScript/Python
 
 Traditional CI/CD is straightforward. You run linters, run tests, and if they pass, you deploy. The tests are deterministic -- they either pass or fail. The deploy either works or it doesn't. You can reason about the state of your system with confidence.
 

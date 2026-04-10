@@ -1320,7 +1320,7 @@ async function checkForDuplicates(
 
 ---
 
-## 10. Chapter Summary
+## 10. Key Takeaways
 
 A skills marketplace transforms individual knowledge into organizational capability. The Dojo pattern -- Git-backed, versioned, reviewed, searchable, recommended -- creates a flywheel where every skill shared raises the floor for everyone. Sensei's AI-driven recommendations solve the discovery problem that kills most knowledge bases. Eval-based quality gates ensure the marketplace is full of skills worth using.
 

@@ -12,7 +12,7 @@
 
 # Chapter 57: Scaling & Cost at the Infra Level
 
-> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 47, Ch 49, Ch 53, Ch 54 | Difficulty: Advanced
+> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 47, Ch 49, Ch 53, Ch 54 | Difficulty: Advanced | Language: TypeScript/Python
 
 In Chapter 49, you learned to control costs at the application level: model routing, token optimization, prompt caching, usage budgets. In Chapter 53, you deployed to serverless functions and containers. In Chapter 54, you built a gateway with rate limiting and cost controls. Now it is time to think about cost and scale at the infrastructure level -- the decisions that determine whether your AI workload costs $500/month or $50,000/month.
 

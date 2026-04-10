@@ -12,7 +12,7 @@
 
 # Chapter 32: Multi-Agent Coordination
 
-> Part 6: Anatomy of AI Developer Tools · Phase 2 · Prerequisites: Ch 9, Ch 26, Ch 27 · Advanced · TypeScript + Architecture
+> **Part 6 — Anatomy of AI Developer Tools** | Phase 2: Become an Expert | Prerequisites: Ch 9, Ch 26, Ch 27 | Difficulty: Advanced | Language: TypeScript + Architecture
 
 A single agent working on a single task is straightforward. But production work often requires multiple things happening at once: running tests while editing code, searching the web while reading files, processing different features in parallel. The Claude Code leak revealed sophisticated coordination mechanisms: a tick loop that uses `setTimeout(0)` to give the agent opportunities to act during idle time, a SleepTool that lets agents pace themselves, a SendUserMessage system for background agents to communicate, and worktree-based isolation that enables parallel agents on the same codebase without merge conflicts.
 
@@ -29,7 +29,8 @@ This chapter dissects how one agent becomes many, how they communicate, and how 
 7. Worktrees: parallel agents on the same repo
 8. Stripe's Minions: one-shot agents at scale
 9. The delegation pattern: Claude to Devin via tickets
-10. Designing multi-agent systems for your own tools
+10. Advanced delegation architecture: dependency-aware planning and session resume
+11. Designing multi-agent systems for your own tools
 
 ### Related Chapters
 
@@ -1142,7 +1143,92 @@ Delegation lets you use each tool for what it does best, connected by standard i
 
 ---
 
-## 10. Designing Multi-Agent Systems
+## 10. Advanced Delegation Architecture: Lessons from claw-code-agent
+
+The open-source claw-code-agent reimplementation (75,000+ stars, pure Python) reverse-engineered and extended the delegation patterns described above. Its parity checklist reveals architectural details about how production multi-agent delegation actually works at the implementation level.
+
+### 10.1 Dependency-Aware Subtasks with Topological Batch Planning
+
+Section 2 showed simple parallel agents: spawn workers, collect results. But real tasks have dependencies. Task B needs the output of Task A. Task C and D are independent. Task E needs both C and D.
+
+claw-code-agent implements this through `plan_runtime.py` -- a topological sort over a task dependency graph:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│       TOPOLOGICAL BATCH PLANNING                          │
+│                                                           │
+│  Task graph:                                              │
+│    A (no deps)  ──┐                                       │
+│    B (no deps)  ──┤──> D (needs A, B)  ──┐               │
+│    C (no deps)  ──┘                      ├──> F (needs D,E)│
+│    E (needs C)  ─────────────────────────┘               │
+│                                                           │
+│  Execution batches (topological sort):                    │
+│                                                           │
+│  Batch 1: [A, B, C]     ← all independent, run parallel  │
+│  Batch 2: [D, E]        ← D waits for A+B, E waits for C │
+│  Batch 3: [F]           ← waits for D+E                  │
+│                                                           │
+│  Total time: max(Batch1) + max(Batch2) + max(Batch3)     │
+│  Not: A + B + C + D + E + F (sequential)                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+This is the same scheduling algorithm used in build systems (Make, Bazel) and CI pipelines. The insight is that multi-agent delegation is a scheduling problem, and the solutions are well-known.
+
+### 10.2 Agent-Manager Lineage Tracking
+
+When agents spawn sub-agents, which spawn further sub-agents, you need to track the lineage. claw-code-agent's `agent_manager.py` and `team_runtime.py` maintain:
+
+- **Parent-child relationships** across spawned agents. Every agent knows its parent and can access the parent's context summary.
+- **Managed agent-group membership** with child indices. A coordinator can enumerate all its descendants, not just direct children.
+- **Sequential multi-subtask delegation with parent-context carryover.** When a parent delegates tasks sequentially, each subsequent task receives a summary of what the previous tasks accomplished. This prevents later tasks from repeating work or contradicting earlier results.
+
+```
+┌───────────────────────────────────────────────────────┐
+│          AGENT LINEAGE TRACKING                        │
+│                                                        │
+│  Coordinator (depth 0)                                 │
+│  ├── Agent A (depth 1, index 0)                        │
+│  │   ├── Agent A1 (depth 2, index 0)                   │
+│  │   └── Agent A2 (depth 2, index 1)                   │
+│  ├── Agent B (depth 1, index 1)                        │
+│  └── Agent C (depth 1, index 2)                        │
+│                                                        │
+│  Each agent tracks:                                    │
+│  ├── parentId: who spawned me                          │
+│  ├── depth: how deep in the tree                       │
+│  ├── childIndex: my position among siblings            │
+│  ├── groupId: which agent-group I belong to            │
+│  └── lineage: [coordinator, parent, ..., me]           │
+│                                                        │
+│  WHY THIS MATTERS:                                     │
+│  ├── Debugging: trace which agent made which change    │
+│  ├── Budgeting: aggregate cost across a lineage        │
+│  ├── Depth limits: prevent infinite agent spawning     │
+│  └── Context: parent summaries flow to children        │
+└───────────────────────────────────────────────────────┘
+```
+
+### 10.3 Child-Session Resume by Saved Session ID
+
+One of the most practical features in claw-code-agent's delegation system is **session persistence for child agents**. When a delegated sub-agent is interrupted (timeout, user cancellation, system restart), its session state is saved to `session_store.py` with a unique ID. The parent agent can later resume that exact child session, picking up where it left off.
+
+This is the difference between delegation that works for 30-second tasks and delegation that works for 30-minute tasks. Without resume, any interruption means restarting the entire subtask from scratch. With resume:
+
+1. Child agent works on Task B for 10 minutes
+2. System restarts (deployment, crash, user closes terminal)
+3. Parent agent resumes, finds saved session ID for Task B
+4. Child agent resumes from its last transcript state -- all tool results, all context, all progress preserved
+5. Task B continues where it left off
+
+The session state includes: the full message transcript, compaction metadata, file history journal (which files were read/written/edited), and the current tool-call state. This is transcript-aware persistence -- not just saving a prompt, but saving the entire reasoning trace so the agent can genuinely continue rather than start over.
+
+**Practical lesson:** If you are building a multi-agent system where tasks take more than a few minutes, session persistence for child agents is not optional. Without it, any interruption cascades into wasted work and cost.
+
+---
+
+## 11. Designing Multi-Agent Systems
 
 ### 10.1 The Decision Framework
 
@@ -1247,7 +1333,7 @@ class MultiAgentCoordinator {
 
 ---
 
-## 11. Key Takeaways
+## 12. Key Takeaways
 
 1. **Multi-agent coordination solves parallelism, isolation, and specialization.** Single agents are serial, share context, and cannot multitask.
 
@@ -1267,7 +1353,9 @@ class MultiAgentCoordinator {
 
 9. **The delegation pattern** uses different tools for their strengths: Claude Code for architecture, Devin/Minions for implementation, connected by tickets and PRs.
 
-10. **Design decisions:** shared state vs. isolation, communication pattern, task duration, isolation level, and feedback loop. Answer these questions before building.
+10. **Dependency-aware delegation is a scheduling problem.** Topological batch planning (same algorithm as build systems) maximizes parallelism while respecting task dependencies. Agent lineage tracking and child-session resume make long-running delegated work reliable.
+
+11. **Design decisions:** shared state vs. isolation, communication pattern, task duration, isolation level, and feedback loop. Answer these questions before building.
 
 ---
 

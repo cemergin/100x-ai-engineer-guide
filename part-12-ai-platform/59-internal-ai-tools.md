@@ -1375,7 +1375,7 @@ These numbers are achievable. They are not the result of an extraordinary team -
 
 ---
 
-## 9. Chapter Summary
+## 9. Key Takeaways
 
 Building an internal AI tool is not about building a chatbot. It is about building an *integration layer* that makes AI capabilities accessible to everyone in your organization with zero configuration. The Glass pattern -- SSO-driven tool discovery, pre-connected integrations, platform-handled errors, multi-pane workspace -- is the blueprint.
 

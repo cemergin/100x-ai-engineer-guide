@@ -12,7 +12,7 @@
 
 # Chapter 53: Deploying LLM Applications
 
-> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 3, Ch 6, Ch 9, Ch 48 | Difficulty: Intermediate
+> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 3, Ch 6, Ch 9, Ch 48 | Difficulty: Intermediate | Language: TypeScript/Python
 
 You have built AI features. You have called APIs, streamed responses, structured output with Zod, built agent loops, wired up RAG pipelines, and hardened everything with guardrails. All of it ran on your laptop. Now it needs to run somewhere that isn't your laptop.
 

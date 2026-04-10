@@ -12,7 +12,7 @@
 
 # Chapter 8: Tool Calling
 
-> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 3, Ch 5 | Difficulty: Intermediate
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 3, Ch 5 | Difficulty: Intermediate | Language: TypeScript
 
 An LLM that can only generate text is like a brain in a jar. It can think, reason, even argue -- but it can't *do* anything. It can't look up today's date. It can't read a file. It can't search the web. It's stuck generating plausible-sounding text based on training data that stopped months or years ago.
 

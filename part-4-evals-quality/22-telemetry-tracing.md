@@ -12,7 +12,7 @@
 
 # Chapter 22: Telemetry & Tracing
 
-> Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 21 · Difficulty: Intermediate · Language: TypeScript
+> **Part 4 — Evals & Quality** | Phase 1: Get Dangerous | Prerequisites: Ch 21 | Difficulty: Intermediate | Language: TypeScript
 
 You've built evals. You know how to measure quality offline. But what happens in production? Users don't file eval reports. They just leave. Or they send angry emails. Or they silently use the feature less and less.
 
@@ -1092,7 +1092,7 @@ const lowTrafficTelemetry = new SampledTelemetry({
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now have a complete telemetry stack for LLM applications:
 

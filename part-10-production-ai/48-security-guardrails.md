@@ -32,6 +32,7 @@ This is a fundamentally different threat model, and most teams get it wrong. The
 - The McKinsey hack case study: how MCP/tool vulnerabilities exposed a production system
 - Designing for least privilege
 - Tenant data isolation: namespace isolation, prompt isolation, and audit logging for multi-tenant AI
+- March 2026: when AI security became real -- the Claude Code leak, Axios hijack, LiteLLM backdoor, and Codex command injection
 
 ### Related Chapters
 - **Ch 11 (Human-in-the-Loop)** — spirals back: approval architectures that prevent dangerous actions
@@ -1858,7 +1859,43 @@ async function logTenantAuditEvent(event: TenantAuditEvent): Promise<void> {
 
 ---
 
-## 12. Summary
+## 12. March 2026: When AI Security Became Real
+
+In a single month, the AI developer ecosystem experienced four major security events that collectively demonstrated that AI tool supply chains are now high-value targets. These are not theoretical risks -- they are incidents with production impact.
+
+### 12.1 The Four Events
+
+**The Claude Code source leak (March 2026).** An accidental `.map` file left in an npm package exposed Claude Code's entire source code -- system prompts, internal architecture, model codenames, security mechanisms, and the binary attestation system described in Ch 30. Anthropic patched the package within hours, but the source had already been archived and analyzed by the community. The result was the deepest public understanding of a production AI tool's internals ever achieved.
+
+**Axios npm package hijack (March 2026).** The `axios` HTTP client library, with over 100 million weekly npm downloads, was compromised. The suspected actors (attributed to North Korean-linked groups) injected a remote access trojan (RAT) into a patch release. Any project that ran `npm install` or `npm update` during the window of compromise pulled the malicious version. Because axios is a transitive dependency of thousands of packages -- including many AI agent frameworks -- the blast radius was enormous.
+
+**LiteLLM backdoor (March 2026).** LiteLLM, a popular Python proxy for routing LLM API calls (97 million monthly PyPI installs), was found to contain a credential harvester. The malicious code exfiltrated API keys for OpenAI, Anthropic, Azure, and other providers, and included lateral movement capabilities targeting Kubernetes clusters. For teams running LiteLLM as a proxy in production (a common pattern for cost routing and observability), every API key that passed through the proxy was potentially compromised.
+
+**OpenAI Codex command injection (discovered December 2025, patched February 2026).** Researchers demonstrated that malicious git branch names could inject commands into OpenAI Codex's execution environment. Because Codex runs in containers with network access and tool capabilities, a carefully crafted branch name could trigger arbitrary command execution when the agent checked out the repository. The vulnerability was patched, but it illustrated a class of attack -- poisoned repository metadata -- that is specific to AI coding agents.
+
+### 12.2 The Pattern
+
+These four events share a common thread: **AI tool supply chains are now high-value targets**, and the attacks are accelerating in sophistication.
+
+```
+TRADITIONAL SUPPLY CHAIN ATTACK:
+  Compromise a library → inject malware → wait for installs
+  Target: any application that uses the library
+
+AI-SPECIFIC SUPPLY CHAIN ATTACK:
+  Compromise an AI tool dependency → harvest API keys, model access
+  Target: the AI infrastructure itself (keys, models, agent capabilities)
+  Multiplier: AI agents often have elevated permissions (file write, 
+              shell access, network access) that amplify the blast radius
+```
+
+The lesson for practitioners: every dependency in your AI tool chain -- the model proxy, the agent framework, the npm packages, even the git metadata -- is an attack surface. The standard supply chain hygiene (lock files, dependency auditing, minimal dependencies) applies with even greater urgency to AI systems because agents have broader system access than typical applications.
+
+This context motivates the defense-in-depth approach in the rest of this chapter. No single layer is sufficient when the supply chain itself may be compromised.
+
+---
+
+## 13. Key Takeaways
 
 AI security is not a feature you add at the end. It's an architectural decision that shapes every layer of your system.
 

@@ -12,7 +12,7 @@
 
 # Chapter 23: Claude Code Mastery
 
-> Part 5: Harness Engineering · Phase 1: Get Dangerous · Prereqs: Ch 9, 10, 13 · Difficulty: Beg→Adv · Language: Markdown/JSON/TS
+> **Part 5 — Harness Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 9, Ch 10, Ch 13 | Difficulty: Beginner to Advanced | Language: Markdown/JSON/TypeScript
 
 You built an agent loop in Chapter 9. You gave it memory in Chapter 10. You explored frameworks in Chapter 13. Now here is the punchline: **Claude Code is the best agent loop most engineers will ever use**, and mastering it is the single highest-leverage skill you can develop as an AI engineer.
 
@@ -1343,7 +1343,7 @@ You ask Claude Code to "refactor the payment system" without plan mode. It start
 
 ---
 
-## Summary
+## Key Takeaways
 
 Claude Code is not a chatbot. It is a programmable agent runtime. Your job is to configure it:
 

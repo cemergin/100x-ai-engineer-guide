@@ -12,7 +12,7 @@
 
 # Chapter 11: Human-in-the-Loop
 
-> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 9, Ch 10 | Difficulty: Intermediate
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 9, Ch 10 | Difficulty: Intermediate | Language: TypeScript
 
 The agent you built in Chapter 9 can do real things. It can read files, write files, and loop autonomously until a task is done. The memory system from Chapter 10 makes it smarter over time. But here's the uncomfortable truth: an autonomous agent with file system access is one bad tool call away from deleting your production config, overwriting your database migrations, or committing secrets to a public repo.
 

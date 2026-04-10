@@ -615,9 +615,131 @@ print("  4. Human review of 20% sample")
 print("  5. Export for fine-tuning")
 ```
 
+### 4.4 Advanced Synthetic Data Strategies
+
+Beyond simple generation, there are targeted strategies that produce higher-quality synthetic data.
+
+```python
+# Strategy 1: Seed-then-expand
+# Start with a few expert examples, then ask the LLM to generate
+# examples that are DIFFERENT from the seeds in specific dimensions.
+
+seed_expand_prompt = """I have these expert-written customer support examples:
+
+{seeds}
+
+Generate 10 new examples that:
+1. Cover DIFFERENT topics than the seeds (billing, API errors, data migration)
+2. Include different customer emotional states (frustrated, confused, neutral, urgent)
+3. Vary the complexity (simple one-step fix vs multi-step troubleshooting)
+4. Keep the same professional, empathetic tone as the seeds
+
+Format each as INPUT: / OUTPUT:"""
+
+print("Strategy 1: Seed-then-expand")
+print("  Generate diverse examples by constraining along specific dimensions")
+
+# Strategy 2: Persona-based generation
+# Generate the same scenario from different user personas
+personas = [
+    "a non-technical small business owner who is frustrated",
+    "a senior developer who wants a quick, technical answer",
+    "a new user who just signed up and is confused by the terminology",
+    "an enterprise admin managing 500+ seats who is calm but firm",
+]
+
+print("\nStrategy 2: Persona-based generation")
+print("  Same scenario, different user types — forces response diversity")
+for persona in personas:
+    print(f"    - {persona}")
+
+# Strategy 3: Failure case generation
+# Explicitly ask for edge cases and difficult scenarios
+print("\nStrategy 3: Failure case generation")
+print("  Ask: 'What questions would be HARDEST for this bot to answer?'")
+print("  Ask: 'Generate ambiguous questions where the intent is unclear'")
+print("  Ask: 'Generate questions that require information not in the knowledge base'")
+print("  These hard cases prevent your model from being brittle.")
+```
+
 ---
 
-## 5. Data Augmentation
+## 5. Data Versioning and Lineage Tracking
+
+### 5.1 Why Track Dataset Versions
+
+When you iterate on your fine-tuning data — adding examples, removing bad ones, changing format — you need to know which dataset produced which model. Without versioning, you cannot reproduce results or debug regressions.
+
+```python
+import json
+import hashlib
+from datetime import datetime
+
+class DatasetVersion:
+    """Simple dataset versioning for fine-tuning projects."""
+    
+    def __init__(self, name: str, examples: list[dict], parent_version: str = None):
+        self.name = name
+        self.examples = examples
+        self.parent_version = parent_version
+        self.created_at = datetime.now().isoformat()
+        self.version_hash = self._compute_hash()
+    
+    def _compute_hash(self) -> str:
+        """Deterministic hash of the dataset content."""
+        content = json.dumps(self.examples, sort_keys=True)
+        return hashlib.sha256(content.encode()).hexdigest()[:12]
+    
+    def metadata(self) -> dict:
+        """Return version metadata for tracking."""
+        return {
+            "name": self.name,
+            "version_hash": self.version_hash,
+            "num_examples": len(self.examples),
+            "parent_version": self.parent_version,
+            "created_at": self.created_at,
+        }
+    
+    def save(self, directory: str = "."):
+        """Save dataset and metadata."""
+        filename = f"{self.name}_{self.version_hash}"
+        
+        # Save data
+        with open(f"{directory}/{filename}.jsonl", "w") as f:
+            for example in self.examples:
+                f.write(json.dumps(example) + "\n")
+        
+        # Save metadata
+        with open(f"{directory}/{filename}_meta.json", "w") as f:
+            json.dump(self.metadata(), f, indent=2)
+        
+        print(f"Saved: {filename}.jsonl ({len(self.examples)} examples)")
+        return filename
+
+
+# Example: evolving a dataset over time
+v1_data = [
+    {"input": "How do I reset my password?", "output": "Go to Settings > Security > Reset Password."},
+    {"input": "What plans do you offer?", "output": "We offer Free, Pro, and Enterprise plans."},
+]
+
+v1 = DatasetVersion("support-bot", v1_data)
+print(f"v1: {v1.metadata()}")
+
+# v2: added more examples, fixed a typo
+v2_data = v1_data + [
+    {"input": "How do I cancel my subscription?", "output": "Go to Settings > Billing > Cancel Plan."},
+]
+v2 = DatasetVersion("support-bot", v2_data, parent_version=v1.version_hash)
+print(f"v2: {v2.metadata()}")
+
+print("\nNow when model v2 performs worse than v1, you can diff the datasets.")
+print("For production, consider DVC (Data Version Control) or Hugging Face Datasets with Git LFS.")
+```
+
+---
+
+## 6. Data Augmentation
 
 ### 5.1 Rephrasing
 
@@ -838,9 +960,82 @@ for w in warnings:
     print(f"  - {w}")
 ```
 
+### 7.2 Automated Quality Scoring
+
+Beyond basic health checks, you can use embedding models and LLMs to score example quality automatically.
+
+```python
+from sentence_transformers import SentenceTransformer
+from sentence_transformers.util import cos_sim
+import numpy as np
+
+def automated_quality_score(examples: list[dict], model_name: str = "all-MiniLM-L6-v2") -> list[dict]:
+    """Score dataset examples for quality using embeddings and heuristics."""
+    
+    model = SentenceTransformer(model_name)
+    
+    scored = []
+    for example in examples:
+        scores = {}
+        
+        # Score 1: Input-output relevance
+        # High similarity between input and output suggests the output addresses the input
+        if example.get("input") and example.get("output"):
+            emb_in = model.encode([example["input"]])
+            emb_out = model.encode([example["output"]])
+            scores["relevance"] = float(cos_sim(emb_in, emb_out))
+        
+        # Score 2: Output specificity
+        # Very short outputs are likely too generic; very long ones may ramble
+        output_words = len(example.get("output", "").split())
+        if 20 <= output_words <= 200:
+            scores["length_ok"] = 1.0
+        elif 10 <= output_words < 20 or 200 < output_words <= 300:
+            scores["length_ok"] = 0.7
+        else:
+            scores["length_ok"] = 0.3
+        
+        # Score 3: Output diversity check
+        # Outputs that are just repeating the input verbatim are low quality
+        input_words = set(example.get("input", "").lower().split())
+        output_words_set = set(example.get("output", "").lower().split())
+        if input_words and output_words_set:
+            overlap = len(input_words & output_words_set) / len(input_words)
+            scores["novelty"] = 1.0 - min(overlap, 1.0)
+        
+        # Composite score
+        composite = np.mean(list(scores.values()))
+        
+        scored.append({
+            **example,
+            "_quality_scores": scores,
+            "_composite_score": round(composite, 3),
+        })
+    
+    # Sort by composite score
+    scored.sort(key=lambda x: x["_composite_score"], reverse=True)
+    return scored
+
+# Example usage
+sample = [
+    {"input": "How do I reset my password?", 
+     "output": "To reset your password, navigate to Settings, click Security, then Reset Password. You will receive an email with a reset link within 2 minutes."},
+    {"input": "Help with login", 
+     "output": "OK."},
+    {"input": "Billing question", 
+     "output": "Billing question is something we can help with. Your billing question about billing will be addressed."},
+]
+
+scored = automated_quality_score(sample)
+for s in scored:
+    print(f"  Score: {s['_composite_score']:.3f} | Input: {s['input'][:30]} | Output: {s['output'][:40]}...")
+
+print("\nUse the composite score to auto-filter: keep examples above 0.6, review 0.4-0.6, discard below 0.4.")
+```
+
 ---
 
-## 7. Common Pitfalls
+## 8. Common Pitfalls
 
 ### 7.1 The Pitfall Catalog
 

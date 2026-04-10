@@ -12,7 +12,7 @@
 
 # Chapter 12: Context Window Management
 
-> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 0, Ch 9, Ch 10 | Difficulty: Intermediate → Advanced
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 0, Ch 9, Ch 10 | Difficulty: Intermediate → Advanced | Language: TypeScript
 
 Here's a truth that bites every agent builder eventually: your agent works beautifully for three tool calls, then falls apart on the twentieth. The responses get vague, the tool calls get repetitive, and eventually you hit an error: context window exceeded. Or worse, the agent quietly degrades -- it "forgets" what it read earlier because the important information is buried under pages of tool results.
 

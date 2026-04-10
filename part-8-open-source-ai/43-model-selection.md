@@ -277,6 +277,13 @@ frontier_models = {
         "strengths": "Small models for edge, multimodal for vision tasks",
         "when_to_use": "Mobile/edge deployment, vision + language",
     },
+    "Llama 3.3 (Meta)": {
+        "sizes": "70B",
+        "context": "128K tokens",
+        "license": "Llama 3.3 Community License",
+        "strengths": "Quality of 3.1 405B in a 70B model, best open 70B",
+        "when_to_use": "When you need near-frontier quality at 70B scale",
+    },
     "Mistral / Mixtral (Mistral AI)": {
         "sizes": "7B (Mistral), 8x7B (Mixtral), 8x22B (Mixtral Large)",
         "context": "32K tokens",
@@ -318,7 +325,101 @@ for name, info in frontier_models.items():
     print(f"    Use when: {info['when_to_use']}")
 ```
 
-### 3.3 Loading a Decoder Model
+### 3.3 The Llama 3 Family: What Changed Between Versions
+
+The Llama 3 family spans four releases, each with a distinct purpose.
+
+```python
+llama_evolution = {
+    "Llama 3 (April 2024)": {
+        "sizes": "8B, 70B",
+        "context": "8K tokens",
+        "key_change": "New tokenizer (128K vocab), GQA, massive training data (15T tokens)",
+        "improvement": "Huge jump over Llama 2. Competitive with GPT-3.5 at 70B.",
+    },
+    "Llama 3.1 (July 2024)": {
+        "sizes": "8B, 70B, 405B",
+        "context": "128K tokens (16x increase over Llama 3)",
+        "key_change": "Extended context via RoPE scaling, 405B frontier model released",
+        "improvement": "128K context unlocked real RAG use cases. 405B approaches GPT-4.",
+    },
+    "Llama 3.2 (September 2024)": {
+        "sizes": "1B, 3B (text), 11B, 90B (multimodal)",
+        "context": "128K tokens",
+        "key_change": "Tiny models for edge/mobile. Vision-language models (11B, 90B).",
+        "improvement": "1B and 3B run on phones. 11B processes images + text together.",
+    },
+    "Llama 3.3 (December 2024)": {
+        "sizes": "70B",
+        "context": "128K tokens",
+        "key_change": "Distilled knowledge from 405B into 70B architecture.",
+        "improvement": "Matches 3.1 405B quality on most benchmarks at 70B cost.",
+    },
+}
+
+print("Llama 3 Family Evolution:")
+print("=" * 70)
+for version, info in llama_evolution.items():
+    print(f"\n  {version}")
+    print(f"    Sizes:       {info['sizes']}")
+    print(f"    Context:     {info['context']}")
+    print(f"    Key change:  {info['key_change']}")
+    print(f"    Improvement: {info['improvement']}")
+
+print("\nPractical guidance:")
+print("  Need a general-purpose 8B? → Llama 3.1 8B")
+print("  Need the best open-source 70B? → Llama 3.3 70B")
+print("  Need to run on a phone or IoT? → Llama 3.2 1B or 3B")
+print("  Need vision + language? → Llama 3.2 11B or 90B")
+```
+
+### 3.4 Mixture of Experts (MoE): How Mixtral Works
+
+Mixtral uses a fundamentally different architecture from dense models like Llama. Understanding MoE is important because it changes the size/speed/quality equation.
+
+```python
+# How Mixture of Experts works
+print("""
+Dense Model (Llama 7B):
+  Every token passes through ALL 7B parameters.
+  Memory needed: 7B parameters
+  Compute per token: 7B parameters
+
+Mixture of Experts (Mixtral 8x7B):
+  The model has 8 "expert" sub-networks (each ~7B params).
+  A router network picks the TOP 2 experts for each token.
+  Each token only passes through 2 of 8 experts.
+  
+  Total parameters: ~47B (8 experts + shared layers)
+  Active parameters per token: ~13B (2 experts + shared)
+  Memory needed: ~47B (must load ALL experts)
+  Compute per token: ~13B (only 2 experts fire)
+
+  Result: Mixtral 8x7B has 70B-class QUALITY
+          with 13B-class SPEED per token
+          but 47B-class MEMORY requirement
+""")
+
+moe_tradeoffs = {
+    "Quality": "Near 70B quality — experts specialize in different patterns",
+    "Speed": "Near 13B speed — only 2 experts are active per token",
+    "Memory": "Near 47B memory — all experts must be loaded",
+    "Fine-tuning": "Harder — which experts to train? Usually all, which is expensive.",
+    "Quantization": "Works well — GGUF Q4 of Mixtral 8x7B fits in ~26GB",
+}
+
+print("MoE Trade-offs:")
+for aspect, detail in moe_tradeoffs.items():
+    print(f"  {aspect:14s}: {detail}")
+
+print("\nWhen to choose Mixtral over a dense model:")
+print("  - You have enough memory for the full model (26GB+ quantized)")
+print("  - You want faster inference than a same-quality dense model")
+print("  - You need strong multilingual or code performance")
+print("  - Apache 2.0 license is a requirement")
+```
+
+### 3.5 Loading a Decoder Model
 
 ```python
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -669,6 +770,34 @@ for name, info in formats.items():
         print(f"    {key:12s}: {value}")
 ```
 
+### 6.4 Practical GGUF: Picking the Right Quantization Level
+
+GGUF is the most common format for local inference. Here is how to pick the right quantization level for your hardware.
+
+```python
+# GGUF model sizing for Llama 3.1 8B across quantization levels
+gguf_sizing = {
+    "Q2_K":   {"size_gb": 3.2,  "quality": "poor — visible degradation",     "fits_in": "8GB RAM"},
+    "Q3_K_M": {"size_gb": 3.9,  "quality": "acceptable — some loss on hard tasks", "fits_in": "8GB RAM"},
+    "Q4_K_M": {"size_gb": 4.9,  "quality": "good — recommended default",      "fits_in": "8GB RAM"},
+    "Q5_K_M": {"size_gb": 5.7,  "quality": "very good — minimal loss",        "fits_in": "8GB RAM"},
+    "Q6_K":   {"size_gb": 6.6,  "quality": "excellent — near lossless",       "fits_in": "16GB RAM"},
+    "Q8_0":   {"size_gb": 8.5,  "quality": "nearly lossless",                 "fits_in": "16GB RAM"},
+    "fp16":   {"size_gb": 16.0, "quality": "full precision (baseline)",        "fits_in": "24GB+ VRAM"},
+}
+
+print("Llama 3.1 8B — GGUF Sizing Guide:")
+print("=" * 70)
+print(f"  {'Quant':<8} {'Size':<8} {'Quality':<40} {'Fits in'}")
+print("-" * 70)
+for quant, info in gguf_sizing.items():
+    print(f"  {quant:<8} {info['size_gb']:<8.1f} {info['quality']:<40} {info['fits_in']}")
+
+print("\n  Rule: Q4_K_M is the sweet spot for nearly all use cases.")
+print("  If you have memory headroom, Q5_K_M gives a noticeable quality bump.")
+print("  Only go below Q4 if you absolutely must fit in tight memory constraints.")
+```
+
 > **Spiral forward:** Chapter 47 (Quantization & Deployment) goes deep into each format, quality comparisons, and deployment strategies.
 
 ---
@@ -880,6 +1009,42 @@ START: "I need AI for [task]"
       │
       └─ Unsure?
           → Start with 7B, eval, scale up if needed
+```
+
+### 8.3 Practical Model Selection Shortcuts
+
+When you do not have time for a full evaluation, these rules of thumb get you 90% of the way.
+
+```python
+shortcuts = {
+    "Need embeddings for search/RAG?": {
+        "answer": "BAAI/bge-base-en-v1.5 (109M). Switch to bge-large if quality matters more than speed.",
+        "avoid": "Do not use general-purpose LLMs for embeddings — use a model trained for retrieval.",
+    },
+    "Need text classification?": {
+        "answer": "Fine-tune distilbert-base-uncased (~66M). Only move to a larger model if accuracy plateaus.",
+        "avoid": "Do not use a 7B decoder for classification. A 66M encoder is faster AND more accurate.",
+    },
+    "Need a general chat assistant?": {
+        "answer": "Llama 3.1 8B-Instruct (quantized to Q4_K_M). Upgrade to 3.3 70B for harder tasks.",
+        "avoid": "Do not start with 70B. Test 8B first. You may not need the bigger model.",
+    },
+    "Need code generation?": {
+        "answer": "Qwen 2.5 Coder 7B or DeepSeek Coder. Both strong at code, competitive with GPT-3.5.",
+        "avoid": "Do not use a general-purpose model for code when code-specialized models exist.",
+    },
+    "Need translation?": {
+        "answer": "Helsinki-NLP/opus-mt-{src}-{tgt} for specific pairs. google/flan-t5-large for flexible multi-language.",
+        "avoid": "Do not fine-tune a decoder for translation unless you have a very specific domain need.",
+    },
+}
+
+print("Quick Model Selection Shortcuts:")
+print("=" * 70)
+for question, info in shortcuts.items():
+    print(f"\n  {question}")
+    print(f"    Use:   {info['answer']}")
+    print(f"    Avoid: {info['avoid']}")
 ```
 
 ---

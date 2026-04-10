@@ -12,7 +12,7 @@
 
 # Chapter 39: Decoding & Generation
 
-> Part 7 · Phase 2 · Prereqs: Ch 38, Ch 0 · Advanced · Python
+> **Part 7 — The Hard Parts** | Phase 2: Become an Expert | Prerequisites: Ch 38, Ch 0 | Difficulty: Advanced | Language: Python
 
 In Chapter 0, you learned that LLMs generate text one token at a time — predict the next token, append it, repeat. You learned that temperature controls "creativity." That was enough to use the API. Now you will understand *exactly* what happens between "the model outputs probabilities" and "you see text on your screen."
 
@@ -1102,7 +1102,7 @@ for strategy in strategies:
 
 ---
 
-## Summary
+## Key Takeaways
 
 You implemented every major text generation strategy from scratch. You now understand:
 

@@ -187,7 +187,6 @@ print(f"  It gives ~25% of fp16 size with ~97% of the quality")
 # Install: https://ollama.com
 
 # Using Ollama from Python
-import subprocess
 import requests
 import json
 
@@ -235,6 +234,82 @@ ollama list                         # Show downloaded models
 """
 print("Ollama Quick Reference:")
 print(ollama_commands)
+```
+
+### 2.3 Ollama Advanced Usage Patterns
+
+Ollama goes beyond simple chat. Here are the patterns that matter for production-adjacent work.
+
+```python
+import requests
+import json
+
+# Pattern 1: Modelfile for custom models
+# A Modelfile defines everything about your model's behavior.
+modelfile_example = """
+# Modelfile — complete specification for a custom Ollama model
+
+# Base model (GGUF file or an existing Ollama model)
+FROM llama3.1:8b
+
+# System prompt — baked into the model
+SYSTEM \"\"\"You are a senior Python developer. You give concise, correct answers.
+When showing code, always include type hints. Prefer standard library solutions.
+Never apologize or use filler phrases.\"\"\"
+
+# Generation parameters
+PARAMETER temperature 0.3
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER num_predict 500
+PARAMETER stop "```"
+PARAMETER stop "###"
+
+# Template — how messages are formatted (model-specific)
+# Most models use the default chat template, but you can customize:
+# TEMPLATE \"\"\"{{ .System }}\\n\\n{{ .Prompt }}\"\"\"
+"""
+print("Modelfile Example:")
+print(modelfile_example)
+
+# Pattern 2: Ollama REST API for application integration
+def ollama_chat(messages: list[dict], model: str = "llama3.1:8b") -> str:
+    """Chat with Ollama using the chat API (supports message history)."""
+    response = requests.post(
+        "http://localhost:11434/api/chat",
+        json={
+            "model": model,
+            "messages": messages,
+            "stream": False,
+        }
+    )
+    return response.json()["message"]["content"]
+
+# Example: multi-turn conversation
+# messages = [
+#     {"role": "system", "content": "You are a Python expert."},
+#     {"role": "user", "content": "How do I read a CSV file?"},
+# ]
+# response = ollama_chat(messages)
+
+# Pattern 3: Embedding generation with Ollama
+def ollama_embed(text: str, model: str = "llama3.1:8b") -> list[float]:
+    """Generate embeddings using Ollama (any model supports this)."""
+    response = requests.post(
+        "http://localhost:11434/api/embeddings",
+        json={"model": model, "prompt": text}
+    )
+    return response.json()["embedding"]
+
+# Pattern 4: Model management
+print("""
+Model Management Commands:
+  ollama list                    # List all downloaded models
+  ollama show llama3.1:8b       # Show model details (size, parameters, template)
+  ollama cp llama3.1:8b my-bot  # Copy a model (to customize without re-downloading)
+  ollama rm old-model            # Delete a model to free disk space
+  ollama ps                      # Show currently running models
+""")
 ```
 
 ### 2.3 GPTQ: GPU-Optimized Quantization
@@ -643,7 +718,71 @@ for name, info in cloud_options.items():
         print(f"    {key:10s}: {value}")
 ```
 
-### 4.3 Deploying with vLLM
+### 4.3 vLLM Setup and Configuration
+
+vLLM is the gold standard for high-throughput LLM serving. Here is a complete setup guide.
+
+```python
+# Step 1: Installation
+# !pip install vllm
+# Note: vLLM requires CUDA-capable GPU. Does not work on CPU or Apple Silicon.
+
+# Step 2: Verify your environment
+import torch
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU: {torch.cuda.get_device_name(0)}")
+    print(f"VRAM: {torch.cuda.get_device_properties(0).total_mem / 1e9:.1f} GB")
+```
+
+```python
+# vLLM configuration parameters explained
+
+vllm_config = {
+    "--model": "HuggingFace model ID or local path",
+    "--dtype": "float16 or bfloat16 (auto detects best)",
+    "--max-model-len": "Maximum sequence length (reduce if OOM). Defaults to model's max.",
+    "--gpu-memory-utilization": "Fraction of GPU memory to use (0.9 = 90%). Lower to avoid OOM.",
+    "--tensor-parallel-size": "Number of GPUs for tensor parallelism (for large models)",
+    "--quantization": "awq, gptq, or squeezellm for pre-quantized models",
+    "--enable-prefix-caching": "Cache common prefixes (great if many requests share system prompt)",
+    "--max-num-seqs": "Max concurrent sequences in a batch (affects throughput vs latency)",
+    "--port": "API port (default 8000)",
+    "--host": "Bind address (0.0.0.0 for external access)",
+}
+
+print("vLLM Configuration Reference:")
+print("=" * 70)
+for param, desc in vllm_config.items():
+    print(f"  {param:<30} {desc}")
+
+# Common configurations by hardware
+print("""
+Recommended vLLM Configurations:
+
+  T4 (16GB) — Llama 3.1 8B:
+    --model meta-llama/Llama-3.1-8B-Instruct
+    --dtype float16
+    --max-model-len 4096
+    --gpu-memory-utilization 0.90
+
+  A10G (24GB) — Llama 3.1 8B with long context:
+    --model meta-llama/Llama-3.1-8B-Instruct
+    --dtype float16
+    --max-model-len 16384
+    --gpu-memory-utilization 0.92
+    --enable-prefix-caching
+
+  A100 80GB — Llama 3.1 70B:
+    --model meta-llama/Llama-3.1-70B-Instruct
+    --dtype bfloat16
+    --tensor-parallel-size 2
+    --max-model-len 8192
+    --gpu-memory-utilization 0.95
+""")
+```
+
+### 4.4 Deploying with vLLM
 
 ```python
 # vLLM is the gold standard for high-throughput LLM serving
@@ -823,7 +962,57 @@ print(f"\n  Key takeaway: Q4_K_M and AWQ 4-bit give excellent quality/size ratio
 print(f"  Below 4-bit, quality degrades rapidly. Above 4-bit, diminishing returns.")
 ```
 
-### 5.2 When to Quantize
+### 5.2 Edge Deployment: Running Models on Constrained Hardware
+
+Edge deployment — running models on phones, tablets, Raspberry Pi, or IoT devices — has unique constraints.
+
+```python
+# Edge deployment hardware profiles
+edge_hardware = {
+    "iPhone 15 Pro (8GB RAM)": {
+        "usable_memory": "~4 GB (OS and apps take the rest)",
+        "suitable_models": "Llama 3.2 1B (Q4_K_M: 0.7 GB), Phi-3 mini (Q4: 2.3 GB)",
+        "inference_speed": "10-20 tokens/sec with Core ML / MLX",
+        "framework": "llama.cpp (via MLX or Core ML), Swift native",
+    },
+    "Android flagship (12GB RAM)": {
+        "usable_memory": "~6 GB",
+        "suitable_models": "Llama 3.2 3B (Q4_K_M: 2.0 GB), Phi-3 mini (Q4: 2.3 GB)",
+        "inference_speed": "8-15 tokens/sec on Snapdragon 8 Gen 3",
+        "framework": "llama.cpp via JNI, MediaPipe LLM",
+    },
+    "Raspberry Pi 5 (8GB)": {
+        "usable_memory": "~6 GB",
+        "suitable_models": "Llama 3.2 1B (Q4_K_M: 0.7 GB), Phi-3 mini (Q3: 1.8 GB)",
+        "inference_speed": "2-5 tokens/sec (CPU only, no GPU)",
+        "framework": "llama.cpp compiled for ARM",
+    },
+    "Laptop CPU (16GB RAM, no GPU)": {
+        "usable_memory": "~10 GB",
+        "suitable_models": "Llama 3.1 8B (Q4_K_M: 4.9 GB), Mistral 7B (Q4: 4.4 GB)",
+        "inference_speed": "5-15 tokens/sec on Apple M2, 3-8 on Intel i7",
+        "framework": "Ollama, llama.cpp, LM Studio",
+    },
+}
+
+print("Edge Deployment Hardware Guide:")
+print("=" * 70)
+for device, info in edge_hardware.items():
+    print(f"\n  {device}")
+    for key, value in info.items():
+        print(f"    {key:20s}: {value}")
+
+print("""
+Edge deployment rules:
+  1. Always quantize to Q4_K_M or lower
+  2. Target models with <3B parameters for phones, <8B for laptops
+  3. Test with the actual device — benchmarks vary wildly
+  4. Consider latency requirements: 10 tok/s is conversational, 2 tok/s is painful
+  5. Battery impact is real: GPU inference drains batteries 3-5x faster than idle
+""")
+```
+
+### 5.3 When to Quantize
 
 ```python
 quantization_decision = """

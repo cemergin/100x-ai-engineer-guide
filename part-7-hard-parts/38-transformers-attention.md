@@ -12,7 +12,7 @@
 
 # Chapter 38: Transformers & Attention
 
-> Part 7 · Phase 2 · Prereqs: Ch 36, 37 · Advanced · Python
+> **Part 7 — The Hard Parts** | Phase 2: Become an Expert | Prerequisites: Ch 36, Ch 37 | Difficulty: Advanced | Language: Python
 
 In Chapter 36, you built a neural network where every input pixel connects to every hidden neuron. That works for fixed-size inputs like 30-pixel faces. But language has a problem: the word "bank" means completely different things in "river bank" and "savings bank." A standard neural network treats each token independently — it cannot look at surrounding tokens to resolve ambiguity.
 
@@ -1152,7 +1152,7 @@ You now understand the full pipeline from text to transformer output:
 
 ---
 
-## Summary
+## Key Takeaways
 
 You implemented the transformer architecture from scratch. You built:
 

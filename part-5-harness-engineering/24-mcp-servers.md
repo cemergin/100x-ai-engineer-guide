@@ -12,7 +12,7 @@
 
 # Chapter 24: MCP Servers & Integrations
 
-> Part 5: Harness Engineering · Phase 1: Get Dangerous · Prereqs: Ch 8, 23 · Difficulty: Intermediate · Language: TypeScript/JSON
+> **Part 5 — Harness Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8, Ch 23 | Difficulty: Intermediate | Language: TypeScript/JSON
 
 In Chapter 8 you learned how to give an LLM tools — functions it can call to interact with the world. In Chapter 23 you learned that Claude Code is an agent loop built around those tools. Now the question becomes: **what if you could give Claude Code access to every system your company uses?**
 
@@ -1151,7 +1151,7 @@ function sanitize(text: string): string {
 
 ---
 
-## Summary
+## Key Takeaways
 
 MCP is the bridge between your AI agent and the rest of your engineering world. The key ideas:
 

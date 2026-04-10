@@ -12,7 +12,7 @@
 
 # Chapter 55: Sandboxing & Isolating Agents
 
-> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 9, Ch 30, Ch 48, Ch 53 | Difficulty: Advanced
+> **Part 11 — AI Deployment & Infrastructure** | Phase 2: Become an Expert | Prerequisites: Ch 9, Ch 30, Ch 48, Ch 53 | Difficulty: Advanced | Language: TypeScript/Python
 
 An LLM that generates text is safe. It can hallucinate, say something inappropriate, or produce wrong answers -- but it cannot *do* anything. The text goes to a user who decides what to do with it.
 

@@ -12,7 +12,7 @@
 
 # Chapter 14: Semantic Search
 
-> Part 3: RAG & Knowledge Systems · Phase 1: Get Dangerous · Prerequisites: Ch 1, Ch 5 · Difficulty: Intermediate · Language: TypeScript
+> **Part 3 — RAG & Knowledge Systems** | Phase 1: Get Dangerous | Prerequisites: Ch 1, Ch 5 | Difficulty: Intermediate | Language: TypeScript
 
 In Chapter 1 you learned that embeddings turn words into numbers and that similar things end up close together. That was the theory. Now you're going to *build* with it. By the end of this chapter, you'll have a working semantic search system that finds movies by meaning — not just keywords. Type "a movie about a fish trying to find his son" and it returns *Finding Nemo*, even though none of those exact words appear in the description.
 
@@ -1728,7 +1728,7 @@ Natural language to SQL is powerful but dangerous. Here is your checklist:
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now know how to:
 

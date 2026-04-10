@@ -1433,7 +1433,7 @@ The trajectory is clear: AI systems that improve themselves, bounded by human-se
 
 ---
 
-## 11. Chapter Summary
+## 11. Key Takeaways
 
 Self-reinforcing AI systems close the loop between usage and improvement. The automated eval loop runs continuously: detect degradation, analyze failures, generate improvements, test them, deploy the best. User feedback flows into eval datasets and triggers improvement cycles. Agents review each other's work. A/B testing runs in production. Memory consolidation improves individual sessions.
 

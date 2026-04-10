@@ -12,7 +12,7 @@
 
 # Chapter 19: Single-Turn Evals
 
-> Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 18, Ch 8, Ch 4, Ch 14 · Difficulty: Intermediate · Language: TypeScript
+> **Part 4 — Evals & Quality** | Phase 1: Get Dangerous | Prerequisites: Ch 18, Ch 8, Ch 4, Ch 14 | Difficulty: Intermediate | Language: TypeScript
 
 Chapter 18 told you *why* evals matter. This chapter shows you *how* to build them for the simplest case: one input, one output. No conversation, no multi-step agent loops — just "given this input, did the system produce a good output?"
 
@@ -1280,7 +1280,7 @@ These evals are fast (no LLM calls -- just vector lookups) and cheap. Run them i
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now have a working toolkit for single-turn evals:
 

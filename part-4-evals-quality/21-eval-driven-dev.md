@@ -12,7 +12,7 @@
 
 # Chapter 21: Eval-Driven Development
 
-> Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 19-20, Ch 4 · Difficulty: Inter to Adv · Language: TypeScript
+> **Part 4 — Evals & Quality** | Phase 1: Get Dangerous | Prerequisites: Ch 19-20, Ch 4 | Difficulty: Intermediate to Advanced | Language: TypeScript
 
 You have scoring functions (Ch 19). You have LLM-as-judge (Ch 20). Now what? You use them to *drive* development. Just like TDD says "write the test first, then write the code," eval-driven development says "write the eval first, then improve the prompt/retrieval/model until the scores pass."
 
@@ -885,7 +885,7 @@ evalDrivenWorkflow();
 
 ---
 
-## Summary
+## Key Takeaways
 
 Eval-driven development is the AI equivalent of TDD:
 

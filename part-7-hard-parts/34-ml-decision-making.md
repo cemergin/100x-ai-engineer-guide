@@ -12,7 +12,7 @@
 
 # Chapter 34: ML Decision Making
 
-> Part 7 · Phase 2 · Prereqs: Ch 0 · Intermediate · Python
+> **Part 7 — The Hard Parts** | Phase 2: Become an Expert | Prerequisites: Ch 0 | Difficulty: Intermediate | Language: Python
 
 In Chapter 0, you learned that LLMs predict the next token. That sounded magical — a model that *knows* what word comes next. But prediction is not magic. Prediction is pattern matching applied to new data. In this chapter, you will build a prediction system from scratch — no neural networks, no libraries, just you, some data, and the question: "Is this DoorDash refund request fraudulent?"
 
@@ -1121,7 +1121,7 @@ In the next chapter, you will learn how to prepare data for step 1. In Chapter 3
 
 ---
 
-## Summary
+## Key Takeaways
 
 You built a fraud detection model from scratch. You chose features, created a weighted-sum converter, trained it by searching for good weights, tested it on new data, watched it fail on hard cases, retrained with more data, and learned the vocabulary of ML.
 

@@ -463,9 +463,147 @@ Key lessons:
 - Limit to 1-2 subjects per image
 - Use concrete visual descriptors, not instructions
 
+### 4.4 Prompt Engineering Rules of Thumb
+
+The following patterns consistently produce better results across Stable Diffusion models:
+
+```python
+# Rule 1: Front-load the important details
+# The model pays more attention to tokens near the beginning of the prompt.
+# Put the subject and key descriptors first, quality modifiers last.
+
+# Weak: "highly detailed, 4k, masterpiece, a red fox in a snowy forest"
+# Strong: "a red fox standing in a snowy forest, highly detailed, 4k, masterpiece"
+
+# Rule 2: Use artist/photographer references for consistent style
+# The model has learned associations between names and visual styles.
+style_references = {
+    "photography": "shot on Canon EOS R5, 85mm f/1.4, Annie Leibovitz",
+    "digital art": "concept art, artstation, Greg Rutkowski",
+    "oil painting": "oil on canvas, thick brushstrokes, John Singer Sargent",
+    "watercolor": "watercolor illustration, soft washes, loose brushwork",
+    "anime": "anime key visual, studio lighting, Makoto Shinkai",
+    "3d render": "octane render, ray tracing, unreal engine 5, subsurface scattering",
+}
+
+for style, ref in style_references.items():
+    print(f"  {style:16s}: '{ref}'")
+
+# Rule 3: Specify lighting explicitly
+# Lighting has a dramatic impact on mood and quality.
+lighting_terms = [
+    "golden hour", "soft natural light", "dramatic side lighting",
+    "volumetric lighting", "rim lighting", "studio lighting",
+    "overcast", "neon lighting", "candlelight", "backlit",
+]
+print(f"\nEffective lighting terms: {', '.join(lighting_terms[:6])}")
+
+# Rule 4: Use weighting with parentheses (model-dependent)
+# Some models support (term:1.3) to increase weight or (term:0.7) to decrease it.
+# In AUTOMATIC1111 and Comfy UI: (important detail:1.3), (less important:0.8)
+# In diffusers: prompt weighting via compel library
+
+# Rule 5: Keep total prompt under 77 tokens for SD 1.x/2.x
+# SDXL supports up to 150 tokens. Going over truncates silently.
+```
+
 ---
 
-## 5. Image-to-Image Generation
+## 5. ControlNet: Guided Image Generation
+
+### 5.1 What Is ControlNet?
+
+ControlNet adds spatial conditioning to diffusion models. Instead of relying solely on text to guide generation, you provide a structural guide — an edge map, depth map, pose skeleton, or segmentation mask — and the model generates an image that follows that structure.
+
+```python
+# Install ControlNet support
+# !pip install diffusers controlnet-aux
+
+from diffusers import StableDiffusionControlNetPipeline, ControlNetModel
+from diffusers.utils import load_image
+from controlnet_aux import CannyDetector
+import torch
+
+# Load Canny ControlNet (guides generation with edge maps)
+controlnet = ControlNetModel.from_pretrained(
+    "lllyasviel/sd-controlnet-canny",
+    torch_dtype=torch.float16,
+)
+
+pipe = StableDiffusionControlNetPipeline.from_pretrained(
+    "stabilityai/stable-diffusion-2-1",
+    controlnet=controlnet,
+    torch_dtype=torch.float16,
+).to("cuda")
+pipe.enable_attention_slicing()
+
+# Step 1: Create a Canny edge map from a reference image
+canny = CannyDetector()
+reference_image = load_image("https://example.com/room_photo.jpg")  # Your reference
+canny_image = canny(reference_image, low_threshold=100, high_threshold=200)
+
+# Step 2: Generate with the edge map as structural guide
+image = pipe(
+    prompt="a cozy modern living room, warm lighting, plants, minimalist furniture",
+    image=canny_image,
+    num_inference_steps=30,
+    guidance_scale=7.5,
+).images[0]
+image.save("controlnet_canny_output.png")
+print("Generated image follows the edge structure of the reference")
+```
+
+### 5.2 ControlNet Conditioning Types
+
+```python
+# Different ControlNet models accept different conditioning inputs
+controlnet_types = {
+    "Canny Edge": {
+        "model": "lllyasviel/sd-controlnet-canny",
+        "input": "Edge map (black and white edges)",
+        "use_case": "Preserve structure/shape from a reference image",
+        "best_for": "Architecture, product design, maintaining composition",
+    },
+    "Depth Map": {
+        "model": "lllyasviel/sd-controlnet-depth",
+        "input": "Depth map (grayscale, white=near, black=far)",
+        "use_case": "Preserve spatial layout and depth relationships",
+        "best_for": "Scenes, landscapes, maintaining 3D spatial structure",
+    },
+    "OpenPose": {
+        "model": "lllyasviel/sd-controlnet-openpose",
+        "input": "Pose skeleton (joints and connections)",
+        "use_case": "Control human body pose in generated images",
+        "best_for": "Character art, fashion, specific body positions",
+    },
+    "Segmentation": {
+        "model": "lllyasviel/sd-controlnet-seg",
+        "input": "Semantic segmentation map (color-coded regions)",
+        "use_case": "Define regions and their content types",
+        "best_for": "Complex scenes with multiple distinct areas",
+    },
+    "Scribble": {
+        "model": "lllyasviel/sd-controlnet-scribble",
+        "input": "Rough hand-drawn sketch",
+        "use_case": "Turn sketches into polished images",
+        "best_for": "Rapid prototyping, concept art from rough ideas",
+    },
+}
+
+print("ControlNet Conditioning Types:")
+print("=" * 70)
+for name, info in controlnet_types.items():
+    print(f"\n  {name}")
+    print(f"    Model:    {info['model']}")
+    print(f"    Input:    {info['input']}")
+    print(f"    Best for: {info['best_for']}")
+```
+
+ControlNet is especially powerful for product design workflows: sketch a rough layout, feed it as a scribble condition, and get a polished rendering that preserves your intended composition.
+
+---
+
+## 6. Image-to-Image Generation
 
 ### 5.1 Transforming Existing Images
 
@@ -656,7 +794,41 @@ DreamBooth lets you teach a diffusion model a new concept (a specific person's f
 
 The idea: you fine-tune the model on your images, associating them with a unique identifier token (like `sks`). Then you can prompt "a photo of sks dog on the moon" and get your specific dog on the moon.
 
-### 7.2 DreamBooth with Diffusers
+### 7.2 Preparing Training Images for DreamBooth
+
+The quality of your DreamBooth results depends almost entirely on the quality of your training images.
+
+```python
+# DreamBooth training image guidelines
+training_image_guide = {
+    "Quantity": "5-10 images (3 is minimum, 10 is usually optimal, more can overfit)",
+    "Resolution": "At least 512x512. Crop/resize to match model's native resolution.",
+    "Variety": "Different angles, lighting, backgrounds. Avoid too-similar shots.",
+    "Isolation": "Subject should be the clear focus. Avoid cluttered backgrounds.",
+    "Consistency": "Same subject in all images. Do not mix subjects.",
+    "Quality": "Sharp, well-lit, in-focus. No motion blur, no heavy filters.",
+}
+
+print("DreamBooth Training Image Guide:")
+print("-" * 60)
+for criterion, guideline in training_image_guide.items():
+    print(f"  {criterion:14s}: {guideline}")
+
+# Common mistakes that ruin DreamBooth results
+mistakes = [
+    "Using only front-facing photos — model cannot generate other angles",
+    "Including other prominent subjects — model confuses them with your subject",
+    "Mixing professional and casual photos with wildly different processing",
+    "Using too many images (20+) — model overfits to training set backgrounds",
+    "Using low-resolution or blurry source images",
+]
+
+print("\nCommon DreamBooth Mistakes:")
+for mistake in mistakes:
+    print(f"  - {mistake}")
+```
+
+### 7.3 DreamBooth with Diffusers
 
 Here is a simplified training script. In practice, you would use the `diffusers` training scripts or the `autotrain` tool.
 

@@ -170,7 +170,58 @@ print("For general-purpose use, look at the overall MTEB average.")
 print("Leaderboard: https://huggingface.co/spaces/mteb/leaderboard")
 ```
 
-### 2.2 Popular Embedding Models
+### 2.2 Reading MTEB Results: What the Numbers Mean
+
+The overall MTEB score is an average across all task categories, but different applications care about different categories.
+
+```python
+# How to interpret MTEB scores for your specific use case
+
+use_case_to_mteb = {
+    "RAG / Semantic Search": {
+        "primary_metric": "Retrieval (nDCG@10)",
+        "secondary_metric": "Reranking (MAP)",
+        "why": "Retrieval measures how well the model ranks relevant documents. "
+               "This is exactly what RAG needs: find the right chunks for a query.",
+        "benchmark_examples": "MSMARCO, NQ, HotpotQA, TREC-COVID",
+    },
+    "Duplicate Detection": {
+        "primary_metric": "PairClassification (AP)",
+        "secondary_metric": "STS (Spearman correlation)",
+        "why": "PairClassification measures ability to determine if two texts are "
+               "duplicates or near-duplicates. STS measures fine-grained similarity.",
+        "benchmark_examples": "TwitterURLCorpus, SprintDuplicateQuestions",
+    },
+    "Topic Clustering": {
+        "primary_metric": "Clustering (V-measure)",
+        "secondary_metric": "Classification (accuracy)",
+        "why": "Clustering measures whether similar documents end up in the same cluster. "
+               "Good clustering embeddings naturally separate different topics.",
+        "benchmark_examples": "TwentyNewsgroupsClustering, RedditClustering",
+    },
+    "Text Classification": {
+        "primary_metric": "Classification (accuracy)",
+        "secondary_metric": "Overall average",
+        "why": "Classification measures how well embeddings separate different classes "
+               "when used as features for a downstream classifier.",
+        "benchmark_examples": "AmazonReviewsClassification, ToxicConversations",
+    },
+}
+
+print("MTEB Scores: What to Look At for Your Use Case")
+print("=" * 70)
+for use_case, details in use_case_to_mteb.items():
+    print(f"\n  {use_case}")
+    print(f"    Focus on:     {details['primary_metric']}")
+    print(f"    Also check:   {details['secondary_metric']}")
+    print(f"    Why:          {details['why'][:80]}")
+    print(f"    Benchmarks:   {details['benchmark_examples']}")
+
+print("\nKey insight: a model that tops the overall MTEB leaderboard may NOT be")
+print("the best model for YOUR specific task. Always check task-specific scores.")
+```
+
+### 2.3 Popular Embedding Models
 
 ```python
 from sentence_transformers import SentenceTransformer
@@ -638,9 +689,122 @@ for idx, score, doc in reranked:
 print("\nNotice how the cross-encoder changes the ranking!")
 ```
 
+### 4.4 Practical Comparison: When to Use Which
+
+The choice between bi-encoders and cross-encoders is a core architectural decision.
+
+```python
+# Practical decision guide with real numbers
+
+import time
+from sentence_transformers import SentenceTransformer, CrossEncoder
+import numpy as np
+
+# Benchmark: compare 1 query against 1000 documents
+num_docs = 1000
+bi_encoder = SentenceTransformer("all-MiniLM-L6-v2")
+cross_encoder = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+fake_docs = [f"This is document {i} about topic {i % 50} with some content." for i in range(num_docs)]
+query = "How do I deploy my application to production?"
+
+# Bi-encoder approach: encode all docs, then dot product
+start = time.time()
+doc_embeddings = bi_encoder.encode(fake_docs, normalize_embeddings=True)
+query_embedding = bi_encoder.encode([query], normalize_embeddings=True)
+scores = np.dot(doc_embeddings, query_embedding.T).flatten()
+top_10 = np.argsort(scores)[::-1][:10]
+bi_time = time.time() - start
+
+# Cross-encoder approach: score every pair directly
+start = time.time()
+pairs = [(query, doc) for doc in fake_docs[:100]]  # Only 100 — 1000 would be too slow
+cross_scores = cross_encoder.predict(pairs)
+cross_time_100 = time.time() - start
+estimated_cross_time_1000 = cross_time_100 * 10  # Linear scaling
+
+print(f"Bi-encoder:    {bi_time:.3f}s for {num_docs} documents")
+print(f"Cross-encoder: {cross_time_100:.3f}s for 100 documents "
+      f"(estimated {estimated_cross_time_1000:.1f}s for {num_docs})")
+print(f"Speed ratio:   Cross-encoder is ~{estimated_cross_time_1000/bi_time:.0f}x slower")
+
+print("""
+Decision guide:
+  Documents < 100:     Cross-encoder alone is fine (fast enough, best accuracy)
+  Documents 100-10K:   Bi-encoder retrieve top-50, then cross-encoder re-rank
+  Documents 10K-1M:    Bi-encoder + FAISS retrieve top-100, then cross-encoder top-10
+  Documents > 1M:      Bi-encoder + ANN index (FAISS IVF or HNSW), cross-encoder top-20
+""")
+```
+
 ---
 
-## 5. Comparing API vs Local Embeddings
+## 5. Domain-Specific Fine-Tuning of Embedding Models
+
+### 5.1 When Default Models Are Not Enough
+
+Pre-trained embedding models work well for general text, but they struggle when your domain has specialized vocabulary, jargon, or unusual similarity patterns. Fine-tuning an embedding model on your domain data can improve retrieval quality by 10-30%.
+
+```python
+# Signs that you need to fine-tune your embedding model:
+signs_to_finetune = [
+    "Relevant documents score below 0.5 cosine similarity with queries",
+    "Domain-specific synonyms are not recognized (e.g., 'myocardial infarction' vs 'heart attack')",
+    "Abbreviations common in your domain are not understood (e.g., 'K8s' vs 'Kubernetes')",
+    "The model confuses terms that look similar but mean different things in your domain",
+    "Retrieval quality plateaus despite improving chunking and query strategies",
+]
+
+print("Signs You Need Domain-Specific Embedding Fine-Tuning:")
+for sign in signs_to_finetune:
+    print(f"  - {sign}")
+```
+
+### 5.2 Fine-Tuning with Sentence Transformers
+
+```python
+from sentence_transformers import SentenceTransformer, InputExample, losses
+from torch.utils.data import DataLoader
+
+# Step 1: Prepare training pairs
+# You need pairs of (text_a, text_b, similarity_score) or (anchor, positive, negative)
+
+# Example: domain-specific pairs for a legal tech application
+training_examples = [
+    # Positive pairs (similar meaning in legal context)
+    InputExample(texts=["breach of contract", "failure to perform contractual obligations"], label=0.9),
+    InputExample(texts=["force majeure", "unforeseeable circumstances preventing performance"], label=0.85),
+    InputExample(texts=["indemnification clause", "hold harmless provision"], label=0.9),
+    # Negative pairs (different meaning despite surface similarity)
+    InputExample(texts=["court order", "purchase order"], label=0.1),
+    InputExample(texts=["party to the agreement", "political party"], label=0.05),
+    InputExample(texts=["bar association", "bar and restaurant"], label=0.05),
+    # ... hundreds more pairs from your domain
+]
+
+# Step 2: Set up training
+model = SentenceTransformer("all-MiniLM-L6-v2")
+train_dataloader = DataLoader(training_examples, shuffle=True, batch_size=16)
+train_loss = losses.CosineSimilarityLoss(model)
+
+# Step 3: Fine-tune
+model.fit(
+    train_objectives=[(train_dataloader, train_loss)],
+    epochs=3,
+    warmup_steps=10,
+    output_path="./legal-embedding-model",
+)
+
+print("Fine-tuned embedding model saved to ./legal-embedding-model")
+print("Now 'breach of contract' and 'failure to perform' will be closer together")
+print("while 'court order' and 'purchase order' will be further apart")
+```
+
+The key insight: you do not need thousands of pairs. Even 200-500 high-quality pairs from your domain can significantly improve retrieval quality, because the model already understands general language — you are just teaching it domain-specific nuances.
+
+---
+
+## 6. Comparing API vs Local Embeddings
 
 ### 5.1 Quality Comparison
 

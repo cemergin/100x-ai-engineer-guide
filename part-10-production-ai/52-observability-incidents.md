@@ -1308,7 +1308,7 @@ Multiple small issues combine: a slightly wrong RAG result meets a slightly ambi
 
 ---
 
-## 10. Summary
+## 10. Key Takeaways
 
 AI observability isn't traditional observability with an LLM label. It requires new tools, new metrics, and new debugging approaches.
 

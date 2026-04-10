@@ -561,6 +561,186 @@ for param, info in hyperparameters.items():
     print(f"    Tip:      {info['tip']}")
 ```
 
+### 4.3 Hyperparameter Selection: A Deeper Guide
+
+Choosing the right hyperparameters is the difference between a model that works and one that does not. Here is how each key parameter interacts with the others.
+
+```python
+# Learning rate and rank interact — here is the practical guide
+
+lr_rank_guide = {
+    "Simple style transfer (e.g., tone change)": {
+        "rank": 4,
+        "alpha": 8,
+        "learning_rate": "3e-4",
+        "epochs": "3-5",
+        "rationale": "Small behavioral change needs few parameters and trains quickly.",
+    },
+    "Domain adaptation (e.g., legal, medical)": {
+        "rank": 8,
+        "alpha": 16,
+        "learning_rate": "2e-4",
+        "epochs": "3-5",
+        "rationale": "Moderate change — model needs to learn new vocabulary patterns.",
+    },
+    "Complex task learning (e.g., structured extraction)": {
+        "rank": 16,
+        "alpha": 32,
+        "learning_rate": "1e-4",
+        "epochs": "5-10",
+        "rationale": "Significant behavioral change. Higher rank captures more patterns. "
+                     "Lower LR prevents instability with more trainable parameters.",
+    },
+    "Near-full fine-tuning equivalent": {
+        "rank": 64,
+        "alpha": 128,
+        "learning_rate": "5e-5",
+        "epochs": "2-3",
+        "rationale": "Maximum capacity. Approaches full fine-tuning quality. "
+                     "Low LR essential — too many parameters to be aggressive.",
+    },
+}
+
+print("Hyperparameter Recipes by Task Complexity:")
+print("=" * 70)
+for task, config in lr_rank_guide.items():
+    print(f"\n  {task}")
+    print(f"    rank={config['rank']}, alpha={config['alpha']}, "
+          f"lr={config['learning_rate']}, epochs={config['epochs']}")
+    print(f"    Why: {config['rationale']}")
+
+# The alpha/rank relationship explained
+print("""
+The alpha/rank ratio controls the effective learning rate of LoRA layers.
+  - scaling factor = alpha / rank
+  - alpha=16, rank=8 → scaling=2.0 (standard)
+  - alpha=16, rank=16 → scaling=1.0 (conservative)
+  - alpha=32, rank=8 → scaling=4.0 (aggressive)
+
+Rule of thumb: keep alpha = 2 * rank for most tasks.
+Only increase the ratio if the model is not learning enough.
+""")
+```
+
+### 4.4 Evaluating Your Fine-Tuned Model
+
+After training, you need a systematic way to check whether the fine-tune actually improved things.
+
+```python
+# Before/after comparison framework
+
+def evaluate_fine_tune(base_model, fine_tuned_model, tokenizer, test_prompts):
+    """Compare base model and fine-tuned model on the same prompts."""
+    
+    results = []
+    
+    for prompt in test_prompts:
+        inputs = tokenizer(prompt, return_tensors="pt")
+        
+        # Generate from base model
+        with torch.no_grad():
+            base_output = base_model.generate(
+                **inputs, max_new_tokens=100, temperature=0.7,
+                do_sample=True, pad_token_id=tokenizer.eos_token_id
+            )
+        base_text = tokenizer.decode(base_output[0], skip_special_tokens=True)
+        
+        # Generate from fine-tuned model
+        with torch.no_grad():
+            ft_output = fine_tuned_model.generate(
+                **inputs, max_new_tokens=100, temperature=0.7,
+                do_sample=True, pad_token_id=tokenizer.eos_token_id
+            )
+        ft_text = tokenizer.decode(ft_output[0], skip_special_tokens=True)
+        
+        results.append({
+            "prompt": prompt,
+            "base": base_text[len(prompt):].strip(),
+            "fine_tuned": ft_text[len(prompt):].strip(),
+        })
+    
+    return results
+
+# What to look for in the comparison:
+evaluation_criteria = {
+    "Style match": "Does the fine-tuned model adopt the target style/tone?",
+    "Coherence": "Are fine-tuned outputs well-formed and coherent?",
+    "Task accuracy": "Does it perform the intended task correctly?",
+    "No regression": "Can it still handle general prompts that it could before?",
+    "Diversity": "Does it generate varied outputs, or repeat training examples?",
+}
+
+print("Fine-Tune Evaluation Criteria:")
+for criterion, question in evaluation_criteria.items():
+    print(f"  {criterion:16s}: {question}")
+```
+
+### 4.5 Common Fine-Tuning Failures and Diagnosis
+
+```python
+# Failure patterns and how to fix them
+
+failures = {
+    "Model repeats training examples verbatim": {
+        "diagnosis": "Overfitting — model memorized instead of generalizing",
+        "evidence": "Generated text matches training examples word-for-word",
+        "fixes": [
+            "Reduce epochs (try 1-2 instead of 5)",
+            "Increase training data diversity",
+            "Increase LoRA dropout to 0.1",
+            "Reduce rank (try 4 instead of 16)",
+        ],
+    },
+    "Loss decreases but output quality does not improve": {
+        "diagnosis": "Training format mismatch — model learns wrong thing",
+        "evidence": "Loss curve looks healthy but generated text is still bad",
+        "fixes": [
+            "Check that training format matches inference format exactly",
+            "Verify tokenizer adds correct special tokens",
+            "Inspect training data for hidden formatting issues",
+        ],
+    },
+    "Model loses general capability (catastrophic forgetting)": {
+        "diagnosis": "Too aggressive fine-tuning — base knowledge is damaged",
+        "evidence": "Model handles fine-tuned task OK but fails on basic questions",
+        "fixes": [
+            "Use LoRA instead of full fine-tuning (it freezes base weights)",
+            "Reduce learning rate by 2-5x",
+            "Reduce rank to limit parameter changes",
+            "Mix in some general-purpose training data",
+        ],
+    },
+    "Loss spikes or diverges during training": {
+        "diagnosis": "Learning rate too high or data issue",
+        "evidence": "Loss suddenly jumps up and does not recover",
+        "fixes": [
+            "Reduce learning rate by half",
+            "Increase warmup steps",
+            "Check for corrupted/malformed training examples",
+            "Reduce batch size and increase gradient accumulation",
+        ],
+    },
+    "Model generates endless repetitive text": {
+        "diagnosis": "Repetition penalty needed or training data is repetitive",
+        "evidence": "Output contains loops like 'the the the' or repeated phrases",
+        "fixes": [
+            "Add repetition_penalty=1.2 at inference time",
+            "Check training data for repetitive patterns",
+            "Try higher temperature (0.8-1.0) at inference",
+        ],
+    },
+}
+
+print("Fine-Tuning Failure Diagnosis Guide:")
+print("=" * 60)
+for symptom, info in failures.items():
+    print(f"\n  Symptom: {symptom}")
+    print(f"  Diagnosis: {info['diagnosis']}")
+    print(f"  Fixes:")
+    for fix in info['fixes']:
+        print(f"    - {fix}")
+```
+
 ---
 
 ## 5. Saving and Loading LoRA Adapters

@@ -12,7 +12,7 @@
 
 # Chapter 18: Why Evals Matter
 
-> Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 0 · Difficulty: Intermediate · Language: TypeScript
+> **Part 4 — Evals & Quality** | Phase 1: Get Dangerous | Prerequisites: Ch 0 | Difficulty: Intermediate | Language: TypeScript
 
 Here's the moment every AI engineer hits. You build something. The demo looks amazing. The VP is excited. You ship it. And then the support tickets roll in: "It hallucinated our competitor's pricing." "It told a customer to delete their account." "It works great for English but falls apart in Spanish." "The responses are 3x longer than they need to be."
 
@@ -1064,7 +1064,7 @@ main();
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now understand:
 

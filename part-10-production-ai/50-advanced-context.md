@@ -1262,7 +1262,7 @@ for issue in issues:
 
 ---
 
-## 9. Summary
+## 9. Key Takeaways
 
 Advanced context management is about making every token count. The strategies in this chapter give you the tools to handle conversations of any length, tasks of any complexity, and knowledge bases of any size.
 

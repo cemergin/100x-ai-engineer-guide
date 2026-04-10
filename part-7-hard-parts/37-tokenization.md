@@ -12,7 +12,7 @@
 
 # Chapter 37: Tokenization Deep Dive
 
-> Part 7 · Phase 2 · Prereqs: Ch 0, 36 · Inter-Adv · Python
+> **Part 7 — The Hard Parts** | Phase 2: Become an Expert | Prerequisites: Ch 0, Ch 36 | Difficulty: Intermediate to Advanced | Language: Python
 
 In Chapter 0, you learned that LLMs work with tokens, not words. You learned that "tokenization" splits text into pieces and that this costs money. That was enough to be dangerous. Now you will understand *how* tokenization actually works — from the algorithms that decide where to split, to the special tokens that control model behavior, to the padding and masking that make batched inference possible.
 
@@ -1177,7 +1177,7 @@ for impact, details in tokenization_impacts.items():
 
 ---
 
-## Summary
+## Key Takeaways
 
 Tokenization is the first step in every language model pipeline. You learned:
 

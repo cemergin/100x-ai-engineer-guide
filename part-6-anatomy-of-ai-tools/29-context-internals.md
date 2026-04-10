@@ -12,7 +12,7 @@
 
 # Chapter 29: Context Window Internals
 
-> Part 6: Anatomy of AI Developer Tools · Phase 2 · Prerequisites: Ch 12, Ch 27, Ch 28 · Advanced · TypeScript + Architecture
+> **Part 6 — Anatomy of AI Developer Tools** | Phase 2: Become an Expert | Prerequisites: Ch 12, Ch 27, Ch 28 | Difficulty: Advanced | Language: TypeScript + Architecture
 
 The context window is the most valuable real estate in AI engineering. Every token in the context costs money on every model call, and the window has a hard maximum size. When it fills up, the session degrades or dies. Managing this finite resource is what separates a toy agent from a production tool.
 
@@ -582,6 +582,96 @@ class CacheAwareSession {
     // Now build tools ONCE
     this.tools = this.buildTools(this.config);
   }
+}
+```
+
+### 4.5 The SYSTEM_PROMPT_DYNAMIC_BOUNDARY Pattern
+
+The 14 cache-break vectors above tell you what breaks the cache. But Claude Code's architecture contains a deeper insight about how to protect it: the system prompt is deliberately split into two halves at a stable boundary.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│           SYSTEM PROMPT CACHE BOUNDARY                    │
+│                                                           │
+│  ┌────────────────────────────────────────────────┐       │
+│  │  STABLE FRONT HALF (cached across turns)       │       │
+│  │  ├── Core identity and behavior instructions   │       │
+│  │  ├── Tool definitions and schemas              │       │
+│  │  ├── Permission rules and safety constraints   │       │
+│  │  ├── Coding conventions                        │       │
+│  │  └── CLAUDE.md content (changes rarely)        │       │
+│  │                                                │       │
+│  │  This portion is byte-identical across turns.  │       │
+│  │  Anthropic's API caches it at a 90% discount.  │       │
+│  ├────────────────────────────────────────────────┤       │
+│  │  === DYNAMIC BOUNDARY ===                      │       │
+│  ├────────────────────────────────────────────────┤       │
+│  │  DYNAMIC BACK HALF (changes per turn)          │       │
+│  │  ├── Current file context                      │       │
+│  │  ├── Recent changes and diffs                  │       │
+│  │  ├── Active skill injections                   │       │
+│  │  ├── System reminders (turn-specific)          │       │
+│  │  └── Feature flag overrides                    │       │
+│  └────────────────────────────────────────────────┘       │
+│                                                           │
+│  Only the FRONT HALF benefits from prompt caching.        │
+│  Everything after the boundary is paid at full price.     │
+└──────────────────────────────────────────────────────────┘
+```
+
+The source code reveals a tag called `DANGEROUS_uncachedSystemPromptSection`. Any content placed in a section marked with this tag explicitly breaks the prompt cache boundary. The naming is deliberate -- it forces engineers to acknowledge the cost before modifying it. Adding ten lines to the cached portion costs nothing. Adding ten lines that cross the boundary costs real money on every turn of every session.
+
+**Why subagent forking is cheap.** This boundary design explains a surprising cost property: spawning five subagents costs barely more than spawning one. When Claude Code forks a subagent, the child inherits the parent's system prompt as a byte-identical copy. Because the stable front half is identical across parent and children, all of them share the same cache entry. The API serves the cached portion at 90% discount for every subagent. The only per-agent cost is the dynamic back half (which is small) and the conversation-specific content.
+
+```
+Parent agent:
+  System prompt (stable): CACHED     $0.0023
+  System prompt (dynamic): full       $0.002
+  Conversation: full                  $0.015
+  Total:                              $0.019
+
+5 subagents (forked from parent):
+  System prompt (stable): CACHED x5  $0.0115  (5 * $0.0023)
+  System prompt (dynamic): full x5   $0.010
+  Conversations: full x5             $0.075
+  Total:                             $0.097
+
+Without cache sharing, 5 subagents would cost:
+  System prompt (full): x5           $0.115
+  Conversations: full x5             $0.075
+  Total:                             $0.190
+
+Cache boundary savings for 5 subagents: ~49%
+```
+
+**Practical lesson for your own agents.** If you are building any system that makes repeated API calls with a shared system prompt -- which is every agent -- split your system prompt at a stable boundary. Put everything that does not change turn-to-turn in the front. Put everything dynamic after the boundary. This is the single highest-ROI optimization for multi-turn agents:
+
+```typescript
+// Cache-boundary-aware prompt construction
+function buildSystemPrompt(config: AgentConfig): SystemPrompt {
+  // STABLE SECTION: never changes within a session
+  // Order matters — this must come first for cache hits
+  const stableSection = [
+    config.coreInstructions,      // Identity, behavior rules
+    config.toolDefinitions,        // Tool schemas (frozen at session start)
+    config.permissionRules,        // Allow/deny lists
+    config.projectContext,         // CLAUDE.md equivalent
+  ].join('\n');
+
+  // DYNAMIC SECTION: may change every turn
+  const dynamicSection = [
+    config.currentFileContext,     // What file is open now
+    config.recentChanges,          // Git diff, recent edits
+    config.activeSkills,           // Currently loaded skills
+    config.turnSpecificReminders,  // System reminders for this turn
+  ].join('\n');
+
+  return {
+    // The API will cache everything up to stableSection
+    // dynamicSection is paid at full price every turn
+    content: stableSection + '\n' + dynamicSection,
+    cacheBreakpoint: stableSection.length,
+  };
 }
 ```
 

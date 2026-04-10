@@ -12,7 +12,7 @@
 
 # Chapter 9: The Agent Loop
 
-> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8, Ch 6, Ch 3 | Difficulty: Intermediate
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8, Ch 6, Ch 3 | Difficulty: Intermediate | Language: TypeScript
 
 In Chapter 8, you gave the LLM tools. It can call a function, get a result, and incorporate that result into its response. But that's a one-shot interaction. The LLM calls a tool, sees the result, and responds. What if the result tells the LLM it needs to call *another* tool? What if the task requires five tools in sequence, where each step depends on the previous result?
 

@@ -12,7 +12,7 @@
 
 # Chapter 25: Skills, Plugins & Automation
 
-> Part 5: Harness Engineering · Phase 1: Get Dangerous · Prereqs: Ch 23, 24, 11 · Difficulty: Inter→Adv · Language: Markdown/YAML/JSON/TS
+> **Part 5 — Harness Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 23, Ch 24, Ch 11 | Difficulty: Intermediate to Advanced | Language: Markdown/YAML/JSON/TypeScript
 
 Chapter 23 taught you to configure Claude Code. Chapter 24 taught you to connect it to external systems. This chapter teaches you to **package everything you know into reusable artifacts and then automate them so they run without you.**
 
@@ -1647,7 +1647,7 @@ Track these metrics for your skills and automations:
 
 ---
 
-## Summary
+## Key Takeaways
 
 This chapter covered four progressively powerful layers:
 

@@ -12,7 +12,7 @@
 
 # Chapter 36: Neural Networks from Scratch
 
-> Part 7 · Phase 2 · Prereqs: Ch 34, 35 · Inter-Adv · Python
+> **Part 7 — The Hard Parts** | Phase 2: Become an Expert | Prerequisites: Ch 34, Ch 35 | Difficulty: Intermediate to Advanced | Language: Python
 
 In Chapter 34, you built a fraud detector using a weighted sum. You multiplied each feature by a weight, added them up, and checked a threshold. In Chapter 35, you prepared pixel grids of smiling and non-smiling faces. Now you are going to combine both ideas: take those pixel vectors, multiply by learned weights, and train a system that classifies smiles — a real neural network, built from nothing but numpy.
 
@@ -1033,7 +1033,7 @@ Every ML system uses the same loop you wrote:
 
 ---
 
-## Summary
+## Key Takeaways
 
 You built a neural network from scratch. Starting from random weights, you trained a system that classifies pixel faces with 95% accuracy on unseen data. Along the way, you implemented:
 

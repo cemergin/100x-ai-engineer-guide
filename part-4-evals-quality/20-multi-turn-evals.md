@@ -12,7 +12,7 @@
 
 # Chapter 20: Multi-Turn Evals
 
-> Part 4: Evals & Quality · Phase 1: Get Dangerous · Prerequisites: Ch 19, Ch 9, Ch 5 · Difficulty: Inter to Adv · Language: TypeScript
+> **Part 4 — Evals & Quality** | Phase 1: Get Dangerous | Prerequisites: Ch 19, Ch 9, Ch 5 | Difficulty: Intermediate to Advanced | Language: TypeScript
 
 Single-turn evals answer "did this one response look good?" But real AI systems have conversations. An agent takes multiple steps. A chatbot handles follow-up questions. A support workflow escalates from one stage to the next. You need to evaluate the entire journey, not just one turn.
 
@@ -1130,7 +1130,7 @@ main();
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now have the tools to assess multi-turn AI interactions:
 

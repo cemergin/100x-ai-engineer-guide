@@ -12,7 +12,7 @@
 
 # Chapter 26: AI-Augmented Development
 
-> Part 5: Harness Engineering · Phase 1: Get Dangerous · Prereqs: Ch 9, 21, 23 · Difficulty: Inter→Adv · Language: Conceptual/TS/Bash
+> **Part 5 — Harness Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 9, Ch 21, Ch 23 | Difficulty: Intermediate to Advanced | Language: Conceptual/TypeScript/Bash
 
 You have mastered Claude Code. You have connected it to your systems with MCP. You have written skills and built automations. Now zoom out.
 
@@ -1333,7 +1333,7 @@ Be that engineer.
 
 ---
 
-## Summary
+## Key Takeaways
 
 AI-augmented development is not a tool — it is a system:
 

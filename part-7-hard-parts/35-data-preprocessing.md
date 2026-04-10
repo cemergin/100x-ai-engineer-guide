@@ -12,7 +12,7 @@
 
 # Chapter 35: Data & Preprocessing
 
-> Part 7 · Phase 2 · Prereqs: Ch 34 · Intermediate · Python
+> **Part 7 — The Hard Parts** | Phase 2: Become an Expert | Prerequisites: Ch 34 | Difficulty: Intermediate | Language: Python
 
 In Chapter 34, you built a fraud detector from 10 hand-crafted examples with 6 neat features. It worked because the data was clean, balanced, and perfectly suited to the problem. Real data is none of those things. Real data is messy, biased, incomplete, and arrives in formats your model cannot consume.
 
@@ -963,7 +963,7 @@ In Chapter 46 (Dataset Engineering), you will revisit everything from this chapt
 
 ---
 
-## Summary
+## Key Takeaways
 
 Data preprocessing is where ML projects succeed or fail. You learned:
 

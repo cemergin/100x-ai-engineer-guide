@@ -289,7 +289,89 @@ for label, score in zip(result["labels"], result["scores"]):
 
 **When to use:** Categorizing content without training data, email routing, intent detection, content moderation. This is one of the most practical zero-to-value pipelines in the entire Hugging Face ecosystem.
 
-### 3.4 Fill-Mask
+### 3.4 Translation
+
+Translate text between languages using pre-trained models from the Helsinki-NLP project (OPUS-MT).
+
+```python
+# English to French
+translator = pipeline("translation_en_to_fr", model="Helsinki-NLP/opus-mt-en-fr")
+
+texts = [
+    "The deployment was successful and all tests passed.",
+    "Please contact our support team for further assistance.",
+]
+
+print("English to French:")
+print("-" * 60)
+for text in texts:
+    result = translator(text, max_length=128)
+    print(f"  EN: {text}")
+    print(f"  FR: {result[0]['translation_text']}")
+    print()
+
+# English to German
+translator_de = pipeline("translation_en_to_de", model="Helsinki-NLP/opus-mt-en-de")
+result = translator_de("Machine learning is transforming software engineering.")
+print(f"  DE: {result[0]['translation_text']}")
+```
+
+**When to use:** Documentation translation, content localization, multilingual support systems. The OPUS-MT models cover 1,000+ language pairs.
+
+### 3.5 Conversational
+
+Build a simple chatbot that tracks conversation history across turns.
+
+```python
+chatbot = pipeline("conversational", model="facebook/blenderbot-400M-distill")
+
+from transformers import Conversation
+
+conversation = Conversation("Hi, I'm interested in learning about machine learning.")
+
+# First turn
+conversation = chatbot(conversation)
+print(f"  Bot: {conversation.generated_responses[-1]}")
+
+# Second turn — the pipeline maintains context
+conversation.add_user_input("What programming language should I start with?")
+conversation = chatbot(conversation)
+print(f"  Bot: {conversation.generated_responses[-1]}")
+```
+
+**When to use:** Simple FAQ bots, interactive demos, lightweight conversational interfaces. For production chat, you will typically use a larger instruction-tuned model.
+
+### 3.6 Table Question Answering
+
+Answer questions by querying structured table data — no SQL needed.
+
+```python
+table_qa = pipeline("table-question-answering", model="google/tapas-base-finetuned-wtq")
+
+table = {
+    "Model": ["GPT-2", "BERT-base", "Llama 3.1 8B", "Mistral 7B"],
+    "Parameters": ["124M", "110M", "8B", "7B"],
+    "Type": ["Decoder", "Encoder", "Decoder", "Decoder"],
+    "Year": ["2019", "2018", "2024", "2023"],
+}
+
+questions = [
+    "Which model has the most parameters?",
+    "How many decoder models are in the table?",
+    "What year was BERT-base released?",
+]
+
+print("Table Question Answering:")
+print("-" * 60)
+for question in questions:
+    result = table_qa(table=table, query=question)
+    print(f"  Q: {question}")
+    print(f"  A: {result['answer']} (cells: {result.get('cells', [])})")
+```
+
+**When to use:** Business intelligence dashboards, structured data exploration, answering questions over spreadsheets or database query results without writing SQL.
+
+### 3.7 Fill-Mask
 
 Predict the missing word in a sentence. This is what BERT-family models were trained to do — masked language modeling.
 
@@ -564,6 +646,52 @@ Task: Generate 100 tokens with GPT-2
 
 For experimentation, CPU is fine. For anything production-adjacent, you want a GPU.
 
+### 4.5 GPU vs CPU Inference: When the Difference Matters
+
+The gap between CPU and GPU depends heavily on the task and model size. Here is a practical benchmark you can run yourself.
+
+```python
+import time
+import torch
+from transformers import pipeline
+
+def benchmark_device(task, model_name, inputs, device, runs=5):
+    """Benchmark a pipeline on a specific device."""
+    pipe = pipeline(task, model=model_name, device=device)
+    
+    # Warmup
+    pipe(inputs[0])
+    
+    times = []
+    for _ in range(runs):
+        start = time.time()
+        pipe(inputs)
+        times.append(time.time() - start)
+    
+    avg = sum(times) / len(times)
+    return avg
+
+# Test data
+texts = [f"This product is {'excellent' if i % 2 == 0 else 'disappointing'}." for i in range(50)]
+
+# Run on CPU
+cpu_time = benchmark_device("sentiment-analysis", "distilbert-base-uncased-finetuned-sst-2-english", texts, device=-1)
+print(f"CPU: {cpu_time:.3f}s for {len(texts)} texts ({len(texts)/cpu_time:.0f} texts/sec)")
+
+# Run on GPU (if available)
+if torch.cuda.is_available():
+    gpu_time = benchmark_device("sentiment-analysis", "distilbert-base-uncased-finetuned-sst-2-english", texts, device=0)
+    print(f"GPU: {gpu_time:.3f}s for {len(texts)} texts ({len(texts)/gpu_time:.0f} texts/sec)")
+    print(f"Speedup: {cpu_time/gpu_time:.1f}x")
+else:
+    print("No GPU available — run on Colab to see the difference")
+```
+
+**Practical guidance:**
+- **Classification and NER** (small encoder models): CPU is often fast enough. A DistilBERT model processes 100+ texts per second on a modern CPU. GPU helps at scale (10K+ texts).
+- **Text generation** (decoder models): GPU is nearly always necessary. GPT-2 generates at 2-5 tokens/sec on CPU vs 30-50 tokens/sec on a T4 GPU. Larger models are unusably slow on CPU.
+- **Batch processing** (any task): GPU wins decisively. The parallelism of GPUs means larger batches get proportionally faster. CPU does not scale the same way.
+
 ---
 
 ## 5. Reading Model Cards: How to Choose
@@ -589,7 +717,53 @@ print(f"License: {info.card_data.license if info.card_data else 'Unknown'}")
 print(f"Tags: {info.tags}")
 ```
 
-### 5.2 The Model Selection Checklist
+### 5.2 Reading a Model Card in Practice
+
+Let us walk through evaluating a real model card. A good model card answers five critical questions before you commit to using it.
+
+```python
+# Walk through the model card evaluation process for a concrete model
+# Model: distilbert/distilbert-base-uncased-finetuned-sst-2-english
+
+evaluation = {
+    "1. What was it trained on?": {
+        "answer": "SST-2 (Stanford Sentiment Treebank) — movie review snippets",
+        "implication": "Will work well on short English text with clear sentiment. "
+                       "May struggle with sarcasm, domain-specific jargon, or long-form reviews.",
+    },
+    "2. What are the reported metrics?": {
+        "answer": "91.3% accuracy on SST-2 test set",
+        "implication": "Strong on the benchmark, but SST-2 is binary (positive/negative). "
+                       "No neutral class. No multi-label. Test on YOUR data.",
+    },
+    "3. What are the known limitations?": {
+        "answer": "English only. Short text optimized. May reflect biases in movie reviews.",
+        "implication": "Do not use for multilingual. Do not use for long documents without chunking. "
+                       "Test for demographic bias before deploying in sensitive contexts.",
+    },
+    "4. What is the model architecture?": {
+        "answer": "DistilBERT — 6-layer, 768-hidden, 12-heads, 66M params",
+        "implication": "Small and fast. Can run on CPU in production. "
+                       "But less capable than full BERT or RoBERTa for nuanced tasks.",
+    },
+    "5. Is it actively maintained?": {
+        "answer": "Official Hugging Face model, regularly tested with library updates",
+        "implication": "Safe to depend on. Will not break with transformers upgrades.",
+    },
+}
+
+print("Model Card Evaluation: distilbert-base-uncased-finetuned-sst-2-english")
+print("=" * 70)
+for question, details in evaluation.items():
+    print(f"\n  {question}")
+    print(f"    Finding:     {details['answer']}")
+    print(f"    Implication: {details['implication']}")
+
+print("\nRule of thumb: if the model card does not answer these five questions,")
+print("treat the model with extra caution. Missing documentation is a red flag.")
+```
+
+### 5.3 The Model Selection Checklist
 
 When choosing a model from the Hub, check these things in order:
 

@@ -12,7 +12,7 @@
 
 # Chapter 31: Web Search & Knowledge Pipelines
 
-> Part 6: Anatomy of AI Developer Tools · Phase 2 · Prerequisites: Ch 15, Ch 17, Ch 30 · Advanced · TypeScript + Architecture
+> **Part 6 — Anatomy of AI Developer Tools** | Phase 2: Become an Expert | Prerequisites: Ch 15, Ch 17, Ch 30 | Difficulty: Advanced | Language: TypeScript + Architecture
 
 When an AI coding agent needs to know something that is not in your codebase -- a library's API, a Stack Overflow solution, the latest framework documentation -- it searches the web. This sounds simple. It is not. The Claude Code leak revealed a two-tier web system with 107 pre-approved domains, a 125-character paraphrase limit for non-approved sites, encrypted content blobs, and a content extraction pipeline that strips tables, ignores `<head>` tags, and converts HTML to markdown using Turndown. Understanding these mechanisms reveals both the power and the hard limits of web-connected AI agents.
 

@@ -2088,7 +2088,7 @@ USE MULTI-AGENT WHEN:
 
 ---
 
-## 12. Chapter Summary
+## 12. Key Takeaways
 
 Multi-agent orchestration is distributed systems engineering applied to AI. The fundamental patterns are parent-child (hierarchical coordination), peer-to-peer (direct communication), and pipeline (sequential processing). The council pattern adds adversarial deliberation for high-stakes decisions. Every multi-agent system needs explicit error handling, token budget management, and observability.
 

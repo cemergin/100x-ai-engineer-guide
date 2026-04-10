@@ -12,7 +12,7 @@
 
 # Chapter 17: Advanced Retrieval
 
-> Part 3: RAG & Knowledge Systems · Phase 1: Get Dangerous · Prerequisites: Ch 14-16 · Difficulty: Inter to Adv · Language: TypeScript
+> **Part 3 — RAG & Knowledge Systems** | Phase 1: Get Dangerous | Prerequisites: Ch 14-16 | Difficulty: Intermediate to Advanced | Language: TypeScript
 
 You've built a working RAG pipeline. It loads documents, chunks them, embeds them, stores them, and retrieves relevant context. It works. But "works" and "works well" are very different things.
 
@@ -1414,7 +1414,7 @@ main();
 
 ---
 
-## Summary
+## Key Takeaways
 
 You now have a toolkit of advanced retrieval techniques:
 

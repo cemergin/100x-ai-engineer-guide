@@ -12,7 +12,7 @@
 
 # Chapter 27: The Agent Harness Architecture
 
-> Part 6: Anatomy of AI Developer Tools · Phase 2 · Prerequisites: Ch 9, Ch 13, Ch 23 · Inter-Adv · TypeScript + Architecture
+> **Part 6 — Anatomy of AI Developer Tools** | Phase 2: Become an Expert | Prerequisites: Ch 9, Ch 13, Ch 23 | Difficulty: Intermediate to Advanced | Language: TypeScript + Architecture
 
 The model is not the product. The harness is the product. Every AI developer tool you use -- Claude Code, Cursor, GitHub Copilot, Codex -- is a thin language model wrapped in a thick engineering system that handles input, output, context, tools, permissions, memory, and coordination. The March 2026 Claude Code source leak confirmed what many suspected: the harness code dwarfs the model integration code by an order of magnitude. Understanding this architecture is the key to understanding why these tools behave the way they do, and how to build your own.
 
@@ -26,6 +26,9 @@ The model is not the product. The harness is the product. Every AI developer too
 6. Why the harness matters more than the model
 7. Common patterns across all AI developer tools
 8. Building your own: the minimum viable harness
+9. Architecture comparison summary
+10. Model codenames and the multi-version pipeline
+11. Open-source reimplementations: the harness pattern proven model-agnostic
 
 ### Related Chapters
 
@@ -99,6 +102,18 @@ A well-engineered harness around a good model consistently outperforms a great m
 5. **Coordination** determines what scale the model operates at -- one agent vs many
 
 You cannot improve any of these by making the model smarter. You improve them by engineering the harness.
+
+### 1.4 From Prompt Tools to Execution Environments
+
+The community articulated this thesis with even more force after the leak. A widely-shared insight from the Reddit analysis thread put it bluntly:
+
+> "We're moving from prompt tools to execution environments."
+
+The first generation of AI developer tools were prompt wrappers -- take user input, add a system prompt, call the model, display the result. That era is over. The tools that matter now are execution environments: they manage state across turns, coordinate multiple agents, recover from failures, handle multi-step reasoning chains, and orchestrate tool calls across processes and machines.
+
+The moat is no longer model quality. Frontier models are converging. The moat is coordination, state management, recovery, and the engineering that enables long-running autonomous work. As one commenter noted: "Drop DeepSeek or Gemini into the same Claude Code harness and you may get improved coding ability too." The harness IS the product; the model is a component.
+
+This has a concrete implication: if you are evaluating AI developer tools, evaluate the harness, not just the model behind it. And if you are building AI features, the engineering effort should be weighted toward the harness -- context assembly, tool execution, permission management, multi-agent coordination -- not toward model selection.
 
 ---
 
@@ -1293,7 +1308,151 @@ This minimum viable harness is about 200 lines. Claude Code is orders of magnitu
 
 ---
 
-## 10. Key Takeaways
+## 10. Model Codenames and the Multi-Version Pipeline
+
+### 10.1 What the Source Revealed
+
+The leak exposed internal model codenames used within Claude Code's configuration and routing logic. These names are not publicly documented, but their presence reveals how Anthropic manages a multi-version model pipeline:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│              MODEL CODENAMES (from source)                 │
+│                                                           │
+│  Capybara / Mythos                                        │
+│  ├── Maps to: v8 architecture, 1M context window          │
+│  ├── Used in: "fast mode" configuration                   │
+│  └── Likely: the model powering high-throughput sessions   │
+│                                                           │
+│  Numbat                                                   │
+│  ├── Referenced with: a launch window date in source       │
+│  ├── Status: upcoming / unreleased at time of leak         │
+│  └── Likely: a next-generation model in the pipeline       │
+│                                                           │
+│  Fennec                                                   │
+│  ├── Speculated to be: Opus 4.6 (the 1M context model)    │
+│  ├── Referenced in: model routing configuration            │
+│  └── Likely: the high-capability tier model                │
+│                                                           │
+│  Tengu                                                    │
+│  ├── Referenced in: undercover.ts                          │
+│  ├── Used in: undercover mode configuration                │
+│  └── Purpose: unclear, possibly a specialized variant      │
+│                                                           │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 10.2 What Codenames Reveal About Architecture
+
+The existence of multiple codenames with different configurations tells us that model versioning is a first-class architectural concern inside the harness. This is not "we have one model and we call it." It is a pipeline:
+
+1. **Parallel development tracks.** Multiple models exist simultaneously at different stages of readiness. The harness must route requests to the right model based on user tier, task type, and feature flags.
+
+2. **Model-specific configuration.** Each codename maps to a different context window size, different token limits, and different cost profiles. The harness adapts its behavior (compaction thresholds, output limits, caching strategy) per model.
+
+3. **Gradual rollout.** The Numbat codename with a launch window suggests that new models are staged behind date-gated feature flags, not deployed all at once. The harness handles the transition.
+
+### 10.3 Undercover Mode and the One-Way Door
+
+The `undercover.ts` file referenced alongside the Tengu codename implements a mode where Claude Code operates without disclosing that AI was involved in generating the code. The source revealed a critical architectural detail: undercover mode is a **one-way door**. Once enabled, there is no force-OFF mechanism -- the agent will not disclose its involvement regardless of subsequent instructions.
+
+This is relevant to harness architecture because it shows how deeply behavioral modes can be embedded. It is not a prompt-level toggle that the model can be convinced to override. It is a code-level constraint that strips identifying markers from external builds before they ship.
+
+### 10.4 Implications for Your Own Multi-Model Systems
+
+If you are building an agent that supports multiple models (which most production agents eventually do), the codename pattern teaches you to:
+
+- **Treat model identity as configuration, not code.** Model names, context limits, and pricing should live in config, not hardcoded strings.
+- **Route by capability.** Different models have different strengths. The harness should route tasks to the appropriate model based on complexity, cost budget, and required context length.
+- **Version your model configurations.** When you swap Model A for Model B, the harness behavior should adapt automatically (different compaction thresholds, different token budgets, different caching strategies).
+- **Gate rollouts with feature flags.** Never switch all users to a new model simultaneously. Use feature flags (Statsig, LaunchDarkly) to roll out gradually and measure the impact.
+
+---
+
+## 11. Open-Source Reimplementations: The Harness Pattern Proven Model-Agnostic
+
+### 11.1 Why Reimplementations Matter
+
+The strongest validation of the harness thesis comes from outside Anthropic. Two open-source projects have reconstructed the Claude Code harness from first principles, proving that the architecture is not locked to a single model or runtime.
+
+### 11.2 claw-code-agent: The Full Python Reimplementation
+
+[claw-code-agent](https://github.com/HarnessLab/claw-code-agent) is a pure Python, zero-dependency reimplementation of the Claude Code harness. With over 75,000 stars, it is the most popular open-source Claude Code alternative. It works with vLLM, Ollama, LiteLLM Proxy, and OpenRouter -- proving the harness pattern is model-agnostic.
+
+The architectural mapping between claw-code-agent and the Claude Code harness is direct:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│    CLAW-CODE-AGENT ↔ CLAUDE CODE ARCHITECTURE MAP        │
+│                                                           │
+│  agent_runtime.py       = Agent loop (Ch 27 Section 3)   │
+│  agent_tools.py         = Tool system (Ch 30)            │
+│  agent_prompting.py     = System prompt assembly          │
+│  agent_context.py       = Context window management       │
+│  compact.py             = Compaction service (Ch 29)      │
+│  permissions.py         = Permission engine (Ch 30)       │
+│  session_store.py       = Session persistence             │
+│  plugin_runtime.py      = Plugin hooks (Ch 33)            │
+│  mcp_runtime.py         = MCP client (Ch 31)              │
+│  agent_manager.py       = Multi-agent coordination (Ch 32)│
+│  cost_tracker.py        = Usage budget enforcement        │
+│  tokenizer_runtime.py   = Token counting                  │
+│  hook_policy.py         = Hook execution policy           │
+│  worktree_runtime.py    = Git worktree isolation (Ch 32)  │
+│  background_runtime.py  = Background agent execution      │
+│  task_runtime.py        = Task delegation                 │
+│  plan_runtime.py        = Topological batch planning      │
+│  workflow_runtime.py    = Workflow orchestration           │
+│  team_runtime.py        = Agent-group management          │
+│  openai_compat.py       = Multi-provider API translation  │
+│  query_engine.py        = Main query/response engine      │
+│                                                           │
+│  TOTAL: 55 Python files. Zero external dependencies.      │
+└──────────────────────────────────────────────────────────┘
+```
+
+The key insight: the entire Claude Code harness decomposes into roughly 55 well-scoped Python modules. Each module maps to one concept from this Part. The claw-code-agent repository is effectively a build guide for constructing a production-grade AI coding agent.
+
+Notable capabilities reproduced in pure Python:
+
+- **Agent runtime:** One-shot agent loop with iterative tool calling and streaming token-by-token output
+- **Context management:** Automatic compact-boundary insertion with preserved recent tail, reactive compaction retry after prompt-too-long errors, and compaction metadata tracking (compacted message IDs, preserved-tail IDs, depth, lineage, revision summaries)
+- **Session persistence:** Transcript-aware save/resume with file history journaling for write/edit/shell actions
+- **Multi-agent:** Dependency-aware delegated subtasks with topological batch planning, agent-manager lineage tracking, child-session resume by saved session ID
+- **Plugin system:** Manifest-based runtime discovery with hooks at five lifecycle phases (before-prompt, after-turn, resume, persist, delegate), tool aliases, virtual tools, tool blocking, and plugin session-state persistence
+- **MCP integration:** Real stdio transport with full initialize/resources/tools lifecycle
+
+### 11.3 nano-claude-code: The Minimal Viable Implementation
+
+From the [collection-claude-code-source-code](https://github.com/chauncygu/collection-claude-code-source-code) repository comes nano-claude-code: a minimal implementation in roughly 5,000 lines of Python. It is immediately runnable and includes:
+
+- Multi-provider support (same model-agnostic pattern)
+- 18 tools (the practical minimum for a useful coding agent)
+- Dual-scope memory (project-level and session-level)
+- A skill system for extensibility
+
+This proves the minimum viable harness from Section 8 of this chapter can be extended to production-quality in about 5,000 lines. The gap between our 200-line TypeScript example and a fully capable agent is not as large as it might seem.
+
+### 11.4 What the Original Source Reveals
+
+The same collection repository also contains reconstructions of Claude Code's original TypeScript source. Key findings that reinforce what the leak suggested:
+
+- **query.ts is 785KB** -- the main agent loop in a single massive file. This confirms that the agent loop is the core of the system, with everything else orbiting it.
+- **40+ tools** in the original source, compared to nano-claude-code's 18. The extra tools handle edge cases, notebook editing, web operations, and agent spawning.
+- **~87 slash commands** with metadata-driven routing. The command system is larger than most developers expect.
+- **6+ killswitches** for remote control infrastructure. The production harness includes operational controls (feature flags, rate limiters, emergency stops) that open-source reimplementations can omit.
+
+### 11.5 The Lesson for Builders
+
+If you want to build your own Claude Code-quality harness:
+
+1. **Start with the 55-file blueprint.** The claw-code-agent module list is the architecture. Each file is one concern. Build them one at a time.
+2. **Start minimal.** nano-claude-code proves 5,000 lines and 18 tools gets you a working agent. Add complexity only when you need it.
+3. **The harness is model-agnostic.** claw-code-agent works with vLLM, Ollama, LiteLLM, and OpenRouter. Your harness should target the OpenAI-compatible API format and swap models freely.
+4. **Python works fine.** Claude Code is TypeScript. claw-code-agent is Python. The architecture translates cleanly because it is fundamentally about state management, tool execution, and context assembly -- not language-specific features.
+
+---
+
+## 12. Key Takeaways
 
 1. **The harness is the product.** The model is a commodity API call. The harness -- context assembly, tool execution, permission management, memory, rendering -- is what makes the product useful.
 

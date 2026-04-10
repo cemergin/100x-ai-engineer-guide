@@ -12,7 +12,7 @@
 
 # Chapter 13: Agent Patterns & Frameworks
 
-> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8-12 | Difficulty: Intermediate → Advanced
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8-12 | Difficulty: Intermediate → Advanced | Language: TypeScript
 
 You just built an agent from scratch. Over five chapters, you implemented tool calling (Ch 8), the agent loop (Ch 9), three layers of memory (Ch 10), human-in-the-loop approvals (Ch 11), and context window management (Ch 12). You wrote all of it yourself, in TypeScript, with no frameworks.
 
