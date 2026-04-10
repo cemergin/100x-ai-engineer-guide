@@ -1390,6 +1390,181 @@ async function managedAgentLoop(
 
 ---
 
+## Build It: A Context Compaction Service in 60 Lines
+
+The compaction service is the heart of any long-running agent. Without it, your context window fills up and the session dies. The implementation below shows the complete pattern: token counting, budget checking, summarizing old messages into a single summary, preserving recent messages, and splitting the system prompt into a stable (cacheable) part and a dynamic part that gets rebuilt each turn. This is exactly what Claude Code's compaction service does, stripped to the essential algorithm.
+
+```bash
+pip install openai tiktoken
+```
+
+```python
+# Context compaction service — the pattern that keeps agent sessions alive
+# Usage: python compaction.py
+
+import tiktoken
+from openai import OpenAI
+from typing import Optional
+
+# --- Token Counting -----------------------------------------------------------
+
+_encoder = tiktoken.get_encoding("cl100k_base")
+
+def count_tokens(text: str) -> int:
+    """Count tokens using tiktoken (same tokenizer as GPT-4 / Claude-ish)."""
+    return len(_encoder.encode(text))
+
+def count_message_tokens(messages: list[dict]) -> int:
+    """Count total tokens across all messages."""
+    total = 0
+    for msg in messages:
+        total += 4  # message overhead (role, separators)
+        total += count_tokens(msg.get("content", "") or "")
+    return total
+
+# --- Cache Boundary: Stable vs Dynamic System Prompt -------------------------
+
+def build_system_prompt(stable_instructions: str, dynamic_context: str) -> list[dict]:
+    """Split system prompt into stable (cached) and dynamic (rebuilt each turn).
+    The stable part stays identical across calls -> prompt cache hit.
+    The dynamic part (CLAUDE.md, active skills) changes per turn."""
+    return [
+        # Stable part: identical every call, eligible for prompt caching
+        {"role": "system", "content": stable_instructions},
+        # Dynamic part: rebuilt each turn with current context
+        {"role": "system", "content": f"[Current context]\n{dynamic_context}"},
+    ]
+
+# --- Compaction: Summarize Old Messages, Keep Recent --------------------------
+
+def compact_messages(
+    messages: list[dict],
+    max_tokens: int = 100_000,
+    preserved_tail: int = 10,
+    model: str = "gpt-4o-mini",
+) -> list[dict]:
+    """If messages exceed the token budget, summarize old messages into one.
+    
+    Strategy:
+    1. Always keep the system messages (index 0, 1) 
+    2. Always keep the last `preserved_tail` messages (recent context)
+    3. Summarize everything in between into a single summary message
+    """
+    total_tokens = count_message_tokens(messages)
+    if total_tokens <= max_tokens:
+        return messages  # under budget, no compaction needed
+
+    print(f"[COMPACTION] {total_tokens} tokens exceeds {max_tokens} budget. Compacting...")
+
+    # Separate system messages, middle (compactable), and tail (preserved)
+    system_msgs = [m for m in messages[:2] if m["role"] == "system"]
+    non_system = [m for m in messages if m["role"] != "system"]
+
+    if len(non_system) <= preserved_tail:
+        return messages  # not enough messages to compact
+
+    to_summarize = non_system[:-preserved_tail]
+    to_keep = non_system[-preserved_tail:]
+
+    # Build a text representation of messages to summarize
+    summary_input = ""
+    for msg in to_summarize:
+        role = msg["role"]
+        content = (msg.get("content", "") or "")[:500]  # truncate long messages
+        summary_input += f"[{role}]: {content}\n"
+
+    # Call a cheap model to summarize
+    client = OpenAI()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": (
+                "Summarize the following conversation history concisely. "
+                "Preserve: key decisions, file paths mentioned, errors encountered, "
+                "and the user's goals. Drop: verbose tool outputs, repeated attempts, "
+                "routine acknowledgments. Be factual and brief."
+            )},
+            {"role": "user", "content": summary_input},
+        ],
+    )
+    summary = response.choices[0].message.content
+
+    # Build compacted message array
+    summary_msg = {
+        "role": "user",
+        "content": f"[Previous conversation summary]\n{summary}"
+    }
+
+    compacted = system_msgs + [summary_msg] + to_keep
+    new_tokens = count_message_tokens(compacted)
+    saved = total_tokens - new_tokens
+    print(f"[COMPACTION] {total_tokens} -> {new_tokens} tokens (saved {saved})")
+    return compacted
+
+# --- Full Context Manager -----------------------------------------------------
+
+class ContextManager:
+    def __init__(self, stable_prompt: str, max_tokens: int = 100_000, preserved_tail: int = 10):
+        self.stable_prompt = stable_prompt
+        self.dynamic_context = ""
+        self.max_tokens = max_tokens
+        self.preserved_tail = preserved_tail
+        self.messages: list[dict] = []
+
+    def initialize(self, dynamic_context: str = ""):
+        """Set up initial messages with cache-boundary system prompt."""
+        self.dynamic_context = dynamic_context
+        self.messages = build_system_prompt(self.stable_prompt, dynamic_context)
+
+    def add_message(self, role: str, content: str):
+        """Add a message and compact if over budget."""
+        self.messages.append({"role": role, "content": content})
+        self.messages = compact_messages(
+            self.messages, self.max_tokens, self.preserved_tail
+        )
+
+    def get_messages(self) -> list[dict]:
+        return self.messages
+
+    def token_usage(self) -> dict:
+        total = count_message_tokens(self.messages)
+        return {"total": total, "budget": self.max_tokens, "remaining": self.max_tokens - total}
+
+
+if __name__ == "__main__":
+    ctx = ContextManager(
+        stable_prompt="You are a helpful coding assistant.",
+        max_tokens=500,  # low threshold for demo purposes
+        preserved_tail=3,
+    )
+    ctx.initialize(dynamic_context="Project: demo-app, Language: Python")
+
+    # Simulate a conversation that exceeds the budget
+    exchanges = [
+        ("user", "Read the file src/main.py"),
+        ("assistant", "Here is the content of src/main.py:\n" + "x = 1\n" * 50),
+        ("user", "Now read tests/test_main.py"),
+        ("assistant", "Here is test_main.py:\n" + "def test(): pass\n" * 50),
+        ("user", "Fix the failing test"),
+        ("assistant", "I updated the test to check the return value."),
+        ("user", "Run the tests"),
+        ("assistant", "All 12 tests passed."),
+        ("user", "Great, now add a docstring to main.py"),
+    ]
+
+    for role, content in exchanges:
+        ctx.add_message(role, content)
+        usage = ctx.token_usage()
+        print(f"  [{role}] tokens: {usage['total']}/{usage['budget']}")
+
+    print(f"\nFinal message count: {len(ctx.get_messages())}")
+    print(f"Final token usage: {ctx.token_usage()}")
+```
+
+The critical insight is the preserved tail: recent messages are never summarized because they contain the context the model needs to continue working. Old messages get compressed into a factual summary. This is the same trade-off Claude Code makes -- and why long sessions still work after hundreds of turns.
+
+---
+
 ## 11. Key Takeaways
 
 1. **The context window is a budget.** Fixed overhead (system prompt, CLAUDE.md, tools) is paid on every turn. Dynamic content (history, tool results) grows over time. Reserve space for the model's response.

@@ -1294,6 +1294,177 @@ Claude Code's diff rendering is a trust mechanism. Cursor's inline diff is a tru
 
 ---
 
+## Build It: A Permission Engine with Critic Pattern in 60 Lines
+
+The permission system is the most safety-critical part of any agent. The implementation below shows the complete pattern: tools registered with risk tiers, glob-based allow/deny lists, the critic pattern (a cheap model reviews medium-risk tool calls before execution), and audit logging. Low-risk tools auto-approve. High-risk tools always ask the user. Medium-risk tools get reviewed by the critic -- a second LLM call that asks "is this safe?" This is the same tiered approach Claude Code uses, condensed to its essence.
+
+```bash
+pip install openai
+```
+
+```python
+# Permission engine with critic pattern — tiered approval for agent tool calls
+# Usage: python permissions.py
+
+import fnmatch, json, datetime
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Callable, Optional
+from openai import OpenAI
+
+class Risk(Enum):
+    LOW = "low"        # auto-approve (read_file, list_dir)
+    MEDIUM = "medium"  # critic reviews (write_file, search_replace)
+    HIGH = "high"      # always ask user (run_shell, delete_file)
+
+@dataclass
+class Tool:
+    name: str
+    risk: Risk
+    fn: Callable
+    description: str = ""
+
+@dataclass
+class Decision:
+    tool: str
+    args: dict
+    risk: Risk
+    action: str       # "approve" | "deny" | "ask_user"
+    reason: str
+    timestamp: str = field(default_factory=lambda: datetime.datetime.now().isoformat())
+
+# --- Permission Engine --------------------------------------------------------
+
+class PermissionEngine:
+    def __init__(self):
+        self.tools: dict[str, Tool] = {}
+        self.allow_patterns: list[str] = []  # glob patterns for auto-allow
+        self.deny_patterns: list[str] = []   # glob patterns for always-deny
+        self.audit_log: list[Decision] = []
+        self.client = OpenAI()
+
+    def register(self, name: str, risk: Risk, fn: Callable, description: str = ""):
+        self.tools[name] = Tool(name, risk, fn, description)
+
+    def add_allow(self, pattern: str):
+        """Add a glob pattern to auto-allow (e.g., 'read_*')."""
+        self.allow_patterns.append(pattern)
+
+    def add_deny(self, pattern: str):
+        """Add a glob pattern to always deny (e.g., 'delete_*')."""
+        self.deny_patterns.append(pattern)
+
+    def _log(self, tool: str, args: dict, risk: Risk, action: str, reason: str) -> Decision:
+        decision = Decision(tool=tool, args=args, risk=risk, action=action, reason=reason)
+        self.audit_log.append(decision)
+        return decision
+
+    def _matches_any(self, name: str, patterns: list[str]) -> bool:
+        return any(fnmatch.fnmatch(name, p) for p in patterns)
+
+    def _critic_review(self, tool_name: str, args: dict) -> tuple[bool, str]:
+        """The critic pattern: ask a cheap model if this tool call looks safe."""
+        prompt = (
+            f"An AI agent wants to call tool '{tool_name}' with arguments:\n"
+            f"{json.dumps(args, indent=2)}\n\n"
+            f"Is this operation safe? Consider: data loss risk, scope of changes, "
+            f"reversibility, and whether the arguments look reasonable.\n"
+            f"Respond with exactly 'SAFE: <reason>' or 'UNSAFE: <reason>'."
+        )
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",  # cheap model for critic
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
+        )
+        verdict = response.choices[0].message.content.strip()
+        is_safe = verdict.upper().startswith("SAFE")
+        return is_safe, verdict
+
+    def check(self, tool_name: str, args: dict) -> Decision:
+        """Evaluate whether a tool call should be approved, denied, or escalated.
+        
+        Evaluation order (deny always wins):
+        1. Deny patterns -> deny
+        2. Allow patterns -> approve
+        3. Risk tier: LOW -> approve, HIGH -> ask_user, MEDIUM -> critic
+        """
+        tool = self.tools.get(tool_name)
+        if not tool:
+            return self._log(tool_name, args, Risk.HIGH, "deny", f"Unknown tool: {tool_name}")
+
+        # 1. Deny list always wins
+        if self._matches_any(tool_name, self.deny_patterns):
+            return self._log(tool_name, args, tool.risk, "deny", "Matched deny pattern")
+
+        # 2. Allow list overrides risk tier
+        if self._matches_any(tool_name, self.allow_patterns):
+            return self._log(tool_name, args, tool.risk, "approve", "Matched allow pattern")
+
+        # 3. Risk-based decision
+        if tool.risk == Risk.LOW:
+            return self._log(tool_name, args, tool.risk, "approve", "Low risk: auto-approved")
+
+        if tool.risk == Risk.HIGH:
+            return self._log(tool_name, args, tool.risk, "ask_user", "High risk: requires user approval")
+
+        # MEDIUM risk: use the critic pattern
+        is_safe, verdict = self._critic_review(tool_name, args)
+        if is_safe:
+            return self._log(tool_name, args, tool.risk, "approve", f"Critic approved: {verdict}")
+        else:
+            return self._log(tool_name, args, tool.risk, "ask_user", f"Critic flagged: {verdict}")
+
+    def execute(self, tool_name: str, args: dict) -> str:
+        """Check permissions, then execute if approved."""
+        decision = self.check(tool_name, args)
+        print(f"  [{decision.risk.value.upper()}] {tool_name} -> {decision.action}: {decision.reason}")
+
+        if decision.action == "approve":
+            return self.tools[tool_name].fn(**args)
+        elif decision.action == "ask_user":
+            answer = input(f"  Allow {tool_name}({args})? (y/n): ").strip().lower()
+            if answer == "y":
+                return self.tools[tool_name].fn(**args)
+            return "Denied by user."
+        else:
+            return f"Denied: {decision.reason}"
+
+    def print_audit_log(self):
+        print("\n=== Audit Log ===")
+        for d in self.audit_log:
+            print(f"  {d.timestamp} | {d.risk.value:6s} | {d.action:9s} | {d.tool}: {d.reason}")
+
+
+if __name__ == "__main__":
+    engine = PermissionEngine()
+
+    # Register tools with risk tiers
+    engine.register("read_file", Risk.LOW, lambda path: f"(contents of {path})", "Read a file")
+    engine.register("write_file", Risk.MEDIUM, lambda path, content: f"Wrote to {path}", "Write a file")
+    engine.register("run_shell", Risk.HIGH, lambda cmd: f"Ran: {cmd}", "Execute shell command")
+    engine.register("delete_file", Risk.HIGH, lambda path: f"Deleted {path}", "Delete a file")
+    engine.register("list_dir", Risk.LOW, lambda path: f"(listing of {path})", "List directory")
+
+    # Configure patterns
+    engine.add_allow("list_*")        # always allow listing
+    engine.add_deny("delete_*")       # never allow deletion
+
+    # Simulate tool calls
+    print("=== Simulating Tool Calls ===\n")
+    engine.execute("read_file", {"path": "src/main.py"})       # LOW -> auto-approve
+    engine.execute("list_dir", {"path": "/tmp"})                # matches allow pattern
+    engine.execute("delete_file", {"path": "/etc/passwd"})      # matches deny pattern
+    engine.execute("write_file", {"path": "src/main.py",        # MEDIUM -> critic reviews
+                                  "content": "print('hello')"})
+    # engine.execute("run_shell", {"cmd": "rm -rf /"})          # HIGH -> would ask user
+
+    engine.print_audit_log()
+```
+
+The pattern to internalize: deny always wins, allow overrides risk, and the critic is a cheap second opinion for the gray zone. This three-tier system is why Claude Code can be both safe and productive -- low-risk operations never slow you down, high-risk operations always get a human check, and medium-risk operations get a fast automated review.
+
+---
+
 ## 11. Key Takeaways
 
 1. **The tool execution pipeline has six stages:** validation, permission check, pre-hooks, execution, post-hooks, result formatting. Each stage can block or modify the tool call.

@@ -1541,6 +1541,204 @@ class HookSystem {
 
 ---
 
+## Build It: A Skill & Hook System in 65 Lines
+
+Skills are prompts. Hooks are lifecycle interceptors. Together they form the extension system that makes an agent customizable without modifying its core. The implementation below shows the complete pattern: load a skill from a markdown file with YAML frontmatter, inject it into the system prompt, register hooks at PreToolUse/PostToolUse/Stop lifecycle points, and execute those hooks at the right moments. It also includes a simple Magic Doc updater -- a hook that watches for files with a MAGIC_DOC header and updates them, demonstrating how hooks enable ambient background behaviors.
+
+```bash
+pip install openai pyyaml
+```
+
+```python
+# Skill loader + hook system — the extension architecture behind Claude Code plugins
+# Usage: python skills_hooks.py
+
+import yaml, re, os, datetime
+from dataclasses import dataclass, field
+from typing import Callable, Optional
+from pathlib import Path
+
+# --- Skill Loading ------------------------------------------------------------
+
+@dataclass
+class Skill:
+    name: str
+    description: str
+    content: str           # the actual prompt text
+    triggers: list[str] = field(default_factory=list)  # keywords that activate this skill
+
+def load_skill(filepath: str) -> Skill:
+    """Load a skill from a markdown file with YAML frontmatter."""
+    text = Path(filepath).read_text()
+    # Parse YAML frontmatter between --- markers
+    match = re.match(r"^---\n(.+?)\n---\n(.+)", text, re.DOTALL)
+    if not match:
+        return Skill(name=Path(filepath).stem, description="", content=text)
+    
+    frontmatter = yaml.safe_load(match.group(1))
+    content = match.group(2).strip()
+    return Skill(
+        name=frontmatter.get("name", Path(filepath).stem),
+        description=frontmatter.get("description", ""),
+        content=content,
+        triggers=frontmatter.get("triggers", []),
+    )
+
+def inject_skills(system_prompt: str, active_skills: list[Skill]) -> str:
+    """Prepend active skills to the system prompt as tagged blocks."""
+    skill_blocks = ""
+    for skill in active_skills:
+        skill_blocks += f"<skill name=\"{skill.name}\">\n{skill.content}\n</skill>\n\n"
+    return skill_blocks + system_prompt
+
+# --- Hook System --------------------------------------------------------------
+
+class HookEvent:
+    PRE_TOOL_USE = "PreToolUse"
+    POST_TOOL_USE = "PostToolUse"
+    STOP = "Stop"
+
+@dataclass
+class HookContext:
+    event: str
+    tool_name: str = ""
+    tool_args: dict = field(default_factory=dict)
+    tool_result: str = ""
+    messages: list[dict] = field(default_factory=list)
+
+@dataclass
+class HookResult:
+    allow: bool = True       # False to block the action
+    modified_args: Optional[dict] = None  # optionally modify tool args
+    message: str = ""        # feedback to the agent
+
+# Hook function signature: (HookContext) -> HookResult
+HookFn = Callable[[HookContext], HookResult]
+
+class HookRegistry:
+    def __init__(self):
+        self._hooks: dict[str, list[tuple[str, HookFn]]] = {
+            HookEvent.PRE_TOOL_USE: [],
+            HookEvent.POST_TOOL_USE: [],
+            HookEvent.STOP: [],
+        }
+
+    def register(self, event: str, name: str, fn: HookFn):
+        """Register a hook for a lifecycle event."""
+        self._hooks[event].append((name, fn))
+
+    def run(self, ctx: HookContext) -> HookResult:
+        """Execute all hooks for an event. Any hook can block the action."""
+        for hook_name, fn in self._hooks.get(ctx.event, []):
+            result = fn(ctx)
+            if not result.allow:
+                print(f"  [HOOK:{hook_name}] BLOCKED: {result.message}")
+                return result
+            if result.message:
+                print(f"  [HOOK:{hook_name}] {result.message}")
+        return HookResult(allow=True)
+
+# --- Example Hook: Block dangerous commands -----------------------------------
+
+def safety_hook(ctx: HookContext) -> HookResult:
+    """PreToolUse hook: block shell commands that look destructive."""
+    if ctx.tool_name != "run_shell":
+        return HookResult()
+    cmd = ctx.tool_args.get("command", "")
+    dangerous = ["rm -rf", "DROP TABLE", "format", "> /dev/sda", "mkfs"]
+    for pattern in dangerous:
+        if pattern.lower() in cmd.lower():
+            return HookResult(allow=False, message=f"Blocked dangerous command: {cmd}")
+    return HookResult()
+
+# --- Example Hook: Magic Doc Updater -----------------------------------------
+
+MAGIC_DOC_HEADER = "<!-- MAGIC_DOC -->"
+
+def magic_doc_hook(ctx: HookContext) -> HookResult:
+    """Stop hook: when the agent stops, check for Magic Doc files and update them."""
+    if ctx.event != HookEvent.STOP:
+        return HookResult()
+    # Scan current directory for files with MAGIC_DOC header
+    for md_file in Path(".").glob("*.md"):
+        try:
+            content = md_file.read_text()
+            if MAGIC_DOC_HEADER in content:
+                # Update the timestamp line in the magic doc
+                timestamp = datetime.datetime.now().isoformat()
+                updated = re.sub(
+                    r"Last updated:.*",
+                    f"Last updated: {timestamp}",
+                    content,
+                )
+                if updated == content:  # no existing timestamp, add one
+                    updated = content + f"\n\nLast updated: {timestamp}\n"
+                md_file.write_text(updated)
+                print(f"  [MAGIC_DOC] Updated {md_file.name}")
+        except Exception:
+            pass
+    return HookResult()
+
+# --- Putting It All Together --------------------------------------------------
+
+if __name__ == "__main__":
+    # Create a sample skill file
+    sample_skill = """---
+name: python-expert
+description: Expert Python coding guidance
+triggers:
+  - python
+  - pytest
+  - pip
+---
+
+When writing Python code:
+- Use type hints on all function signatures
+- Prefer pathlib over os.path
+- Use dataclasses for simple data containers
+- Write docstrings for public functions
+"""
+    Path("/tmp/python-expert.md").write_text(sample_skill)
+
+    # Load and inject skills
+    skill = load_skill("/tmp/python-expert.md")
+    print(f"Loaded skill: {skill.name} ({skill.description})")
+    print(f"  Triggers: {skill.triggers}")
+
+    system_prompt = "You are a helpful coding assistant."
+    enhanced_prompt = inject_skills(system_prompt, [skill])
+    print(f"\nEnhanced system prompt ({len(enhanced_prompt)} chars):")
+    print(enhanced_prompt[:300] + "...\n")
+
+    # Set up hooks
+    hooks = HookRegistry()
+    hooks.register(HookEvent.PRE_TOOL_USE, "safety", safety_hook)
+    hooks.register(HookEvent.STOP, "magic-doc", magic_doc_hook)
+
+    # Simulate lifecycle events
+    print("=== Simulating Lifecycle Events ===\n")
+
+    # PreToolUse: safe command
+    ctx1 = HookContext(event=HookEvent.PRE_TOOL_USE, tool_name="run_shell",
+                       tool_args={"command": "ls -la"})
+    r1 = hooks.run(ctx1)
+    print(f"  ls -la -> allowed: {r1.allow}\n")
+
+    # PreToolUse: dangerous command
+    ctx2 = HookContext(event=HookEvent.PRE_TOOL_USE, tool_name="run_shell",
+                       tool_args={"command": "rm -rf /"})
+    r2 = hooks.run(ctx2)
+    print(f"  rm -rf / -> allowed: {r2.allow}\n")
+
+    # Stop: trigger magic doc updater
+    ctx3 = HookContext(event=HookEvent.STOP)
+    hooks.run(ctx3)
+```
+
+The design principle: skills modify what the agent knows (context injection), hooks modify what the agent can do (lifecycle interception). Together they let you extend an agent's behavior without touching its core loop. Every Claude Code plugin is built on exactly this two-part pattern.
+
+---
+
 ## 11. Key Takeaways
 
 1. **Skills are prompts.** They are markdown text injected into the system prompt. Everything else -- frontmatter, loading, distribution -- is infrastructure around this simple idea.

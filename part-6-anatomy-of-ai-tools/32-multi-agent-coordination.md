@@ -1333,6 +1333,159 @@ class MultiAgentCoordinator {
 
 ---
 
+## Build It: An Agent Coordinator in 75 Lines
+
+Multi-agent coordination sounds like a distributed systems problem, but the core pattern is surprisingly simple with asyncio. The implementation below shows the complete flow: a coordinator takes a task, uses an LLM to break it into subtasks with dependency annotations, executes independent subtasks in parallel, waits for dependencies before starting dependent ones, collects all results, and synthesizes a final answer. It also tracks parent-child lineage so you can trace which worker produced which result.
+
+```bash
+pip install openai
+```
+
+```python
+# Agent coordinator — parallel workers with dependency-aware execution
+# Usage: OPENAI_API_KEY=sk-... python coordinator.py
+
+import asyncio, json
+from dataclasses import dataclass, field
+from openai import AsyncOpenAI
+
+@dataclass
+class Subtask:
+    id: str
+    description: str
+    depends_on: list[str] = field(default_factory=list)  # IDs of prerequisite subtasks
+    result: str = ""
+    parent_id: str = "coordinator"
+
+# --- Task Decomposition -------------------------------------------------------
+
+async def decompose_task(client: AsyncOpenAI, task: str, model: str) -> list[Subtask]:
+    """Use the LLM to break a task into subtasks with dependencies."""
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": (
+                "Break the given task into 2-5 independent or dependent subtasks. "
+                "Return JSON: [{\"id\": \"t1\", \"description\": \"...\", \"depends_on\": []}]. "
+                "Use depends_on to list IDs of subtasks that must complete first. "
+                "Maximize parallelism: only add dependencies when truly required."
+            )},
+            {"role": "user", "content": task},
+        ],
+        response_format={"type": "json_object"},
+    )
+    raw = json.loads(response.choices[0].message.content)
+    subtasks_data = raw.get("subtasks", raw.get("tasks", list(raw.values())[0]))
+    return [Subtask(id=s["id"], description=s["description"],
+                    depends_on=s.get("depends_on", [])) for s in subtasks_data]
+
+# --- Worker Agent -------------------------------------------------------------
+
+async def run_worker(client: AsyncOpenAI, subtask: Subtask, context: dict[str, str],
+                     model: str) -> str:
+    """A worker agent that executes a single subtask."""
+    # Include results from dependencies as context
+    dep_context = ""
+    for dep_id in subtask.depends_on:
+        if dep_id in context:
+            dep_context += f"\n[Result from {dep_id}]: {context[dep_id]}\n"
+
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "Complete the given subtask concisely. Use any provided context from prior subtasks."},
+            {"role": "user", "content": f"Subtask: {subtask.description}{dep_context}"},
+        ],
+    )
+    return response.choices[0].message.content
+
+# --- Dependency-Aware Executor ------------------------------------------------
+
+async def execute_with_dependencies(client: AsyncOpenAI, subtasks: list[Subtask],
+                                     model: str) -> dict[str, str]:
+    """Execute subtasks respecting dependencies. Parallelize where possible."""
+    results: dict[str, str] = {}
+    completed: set[str] = set()
+    pending = {s.id: s for s in subtasks}
+
+    while pending:
+        # Find subtasks whose dependencies are all completed
+        ready = [s for s in pending.values() if all(d in completed for d in s.depends_on)]
+        if not ready:
+            raise RuntimeError(f"Circular dependency detected. Pending: {list(pending.keys())}")
+
+        # Run all ready subtasks in parallel
+        print(f"  [PARALLEL] Launching {len(ready)} workers: {[s.id for s in ready]}")
+        tasks = [run_worker(client, s, results, model) for s in ready]
+        worker_results = await asyncio.gather(*tasks)
+
+        for subtask, result in zip(ready, worker_results):
+            results[subtask.id] = result
+            subtask.result = result
+            completed.add(subtask.id)
+            del pending[subtask.id]
+            print(f"  [DONE] {subtask.id}: {result[:80]}...")
+
+    return results
+
+# --- Result Synthesis ---------------------------------------------------------
+
+async def synthesize(client: AsyncOpenAI, task: str, subtasks: list[Subtask],
+                     results: dict[str, str], model: str) -> str:
+    """Combine all worker results into a final response."""
+    parts = "\n\n".join(f"## {s.id}: {s.description}\n{results[s.id]}" for s in subtasks)
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "Synthesize the worker results into a clear, unified response to the original task."},
+            {"role": "user", "content": f"Original task: {task}\n\nWorker results:\n{parts}"},
+        ],
+    )
+    return response.choices[0].message.content
+
+# --- Coordinator --------------------------------------------------------------
+
+async def coordinate(task: str, model: str = "gpt-4o"):
+    """The full coordination flow: decompose -> execute -> synthesize."""
+    client = AsyncOpenAI()
+
+    print(f"[COORDINATOR] Task: {task}\n")
+
+    # Step 1: Decompose
+    subtasks = await decompose_task(client, task, model)
+    print(f"[PLAN] {len(subtasks)} subtasks:")
+    for s in subtasks:
+        deps = f" (after {s.depends_on})" if s.depends_on else " (independent)"
+        print(f"  {s.id}: {s.description}{deps}")
+    print()
+
+    # Step 2: Execute with dependency awareness
+    results = await execute_with_dependencies(client, subtasks, model)
+
+    # Step 3: Synthesize
+    print("\n[SYNTHESIZING]...")
+    final = await synthesize(client, task, subtasks, results, model)
+
+    # Lineage tracking
+    print("\n=== Lineage ===")
+    for s in subtasks:
+        print(f"  coordinator -> {s.id}: {s.description[:60]}")
+
+    print(f"\n=== Final Response ===\n{final}")
+    return final
+
+
+if __name__ == "__main__":
+    asyncio.run(coordinate(
+        "Create a Python web API for a todo app: design the data model, "
+        "write the API endpoints, and write tests for the endpoints."
+    ))
+```
+
+The key insight is the dependency-aware executor: on each iteration, it finds all subtasks whose dependencies are satisfied and runs them concurrently. This naturally maximizes parallelism -- independent subtasks run at the same time, while dependent ones wait only for their specific prerequisites. This is the same pattern that Claude Code's coordinator mode and Stripe's Minions use, just without the git worktree isolation.
+
+---
+
 ## 12. Key Takeaways
 
 1. **Multi-agent coordination solves parallelism, isolation, and specialization.** Single agents are serial, share context, and cannot multitask.
