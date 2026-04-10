@@ -83,4 +83,4 @@ Expect about 3-4 hours to read all four chapters and build the code examples. By
 
 ---
 
-*Previous: [Part 2 -- Agent Engineering](../part-2-agent-engineering/)* | *Next: [Part 4 -- Evals & Quality](../part-4-evals-quality/)*
+*Previous: [Part 2 — Agent Engineering](../part-2-agent-engineering/)* | *Next: [Part 4 — Evals & Quality](../part-4-evals-quality/)*

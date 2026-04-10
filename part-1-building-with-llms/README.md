@@ -52,6 +52,16 @@ Part 0 (Fundamentals)
                 Ch 20 evaluates the chat from Ch 6
 ```
 
+## The Within-Part Spiral
+
+```
+Ch 3: Your First LLM Call
+  └──→ Ch 4: Prompt Engineering (refine what you send)
+        └──→ Ch 5: Structured Output (get typed data back)
+              └──→ Ch 6: Chat Interface (multi-turn with streaming UI)
+                    └──→ Ch 7: Multimodal (expand beyond text)
+```
+
 ## Prerequisites
 
 - Node.js 18+ installed

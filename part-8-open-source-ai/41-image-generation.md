@@ -31,6 +31,7 @@ This chapter covers text-to-image generation, prompt engineering for images, ima
 - DreamBooth: teaching a model new concepts
 
 ### Related Chapters
+- **Ch 3 (Your First LLM Call)** — spirals back: from API-based generation to running models locally
 - **Ch 7 (Multimodal AI)** — spirals from API-based image generation to local
 - **Ch 38 (Transformers & Attention)** — diffusion models use similar attention mechanisms
 - **Ch 40 (Hugging Face & Pipelines)** — same ecosystem, different library (`diffusers`)

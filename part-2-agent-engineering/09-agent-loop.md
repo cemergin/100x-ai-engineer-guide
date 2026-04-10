@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 9
   TITLE: The Agent Loop
-  PART: II — Agent Engineering
+  PART: 2 — Agent Engineering
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 8 (tool calling), Ch 6 (conversation history), Ch 3 (streaming)
   KEY_TOPICS: agent loop pattern, prompt-llm-tool-execute-append cycle, stop conditions, streaming in loops, parallel tool calls, CLI agent
@@ -12,7 +12,7 @@
 
 # Chapter 9: The Agent Loop
 
-> **Part II — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8, Ch 6, Ch 3 | Difficulty: Intermediate
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8, Ch 6, Ch 3 | Difficulty: Intermediate
 
 In Chapter 8, you gave the LLM tools. It can call a function, get a result, and incorporate that result into its response. But that's a one-shot interaction. The LLM calls a tool, sees the result, and responds. What if the result tells the LLM it needs to call *another* tool? What if the task requires five tools in sequence, where each step depends on the previous result?
 
@@ -31,12 +31,12 @@ This chapter is the most important in the entire guide. Every agent -- Claude Co
 - Debugging agent loops: when things go wrong
 
 ### Related Chapters
-- **Ch 8 (Tool Calling)** -- tools are what run inside the loop
-- **Ch 6 (Chat Interface)** -- conversation history IS the loop's state
-- **Ch 10 (Agent Memory)** -- how memory extends and shapes the loop
-- **Ch 20 (Multi-Turn Evals)** -- evaluate agent loop behavior
-- **Ch 23 (Claude Code Mastery)** -- Claude Code IS an agent loop
-- **Ch 27 (Harness Architecture)** -- production agent loop architectures
+- **Ch 8 (Tool Calling)** — tools are what run inside the loop
+- **Ch 6 (Chat Interface)** — conversation history IS the loop's state
+- **Ch 10 (Agent Memory)** — how memory extends and shapes the loop
+- **Ch 20 (Multi-Turn Evals)** — evaluate agent loop behavior
+- **Ch 23 (Claude Code Mastery)** — Claude Code IS an agent loop
+- **Ch 27 (Harness Architecture)** — production agent loop architectures
 
 ---
 

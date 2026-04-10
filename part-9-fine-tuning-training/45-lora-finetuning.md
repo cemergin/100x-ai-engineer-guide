@@ -31,6 +31,7 @@ This chapter is hands-on. You will fine-tune GPT-2 on a custom dataset using LoR
 - QLoRA: quantized base model + LoRA adapters
 
 ### Related Chapters
+- **Ch 21 (Eval-Driven Development)** — spirals back: use evals to measure whether fine-tuning improves your system
 - **Ch 36 (Neural Networks)** — you understand weights and backpropagation; now you use them
 - **Ch 43 (Model Selection)** — you picked the model; now you customize it
 - **Ch 44 (RAG vs Fine-Tuning)** — you decided to fine-tune; here is how

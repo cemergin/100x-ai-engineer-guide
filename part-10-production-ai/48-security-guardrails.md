@@ -34,6 +34,8 @@ This is a fundamentally different threat model, and most teams get it wrong. The
 
 ### Related Chapters
 - **Ch 11 (Human-in-the-Loop)** — spirals back: approval architectures that prevent dangerous actions
+- **Ch 18-20 (Evals & Quality)** — spirals back: evals catch security regressions before they reach production
+- **Ch 22 (Telemetry & Tracing)** — spirals back: telemetry enables audit trails for security events
 - **Ch 30 (Tool Execution & Permissions)** — spirals back: the permission model inside coding agents
 - **Ch 55 (Sandboxing & Isolating Agents)** — spirals forward: infrastructure-level isolation
 

@@ -31,6 +31,8 @@ This chapter covers everything you need to deploy models efficiently: quantizati
 - Deployment platforms: Ollama, vLLM, TGI, cloud services
 
 ### Related Chapters
+- **Ch 15 (The RAG Pipeline)** — spirals back: quantized embedding models power efficient RAG retrieval
+- **Ch 21 (Eval-Driven Development)** — spirals back: eval before and after quantization to measure quality impact
 - **Ch 43 (Model Selection)** — spirals from model selection into deployment
 - **Ch 45 (Fine-Tuning with LoRA)** — deploy the model you fine-tuned
 - **Ch 57 (Scaling & Cost at Infra Level)** — infrastructure-level scaling

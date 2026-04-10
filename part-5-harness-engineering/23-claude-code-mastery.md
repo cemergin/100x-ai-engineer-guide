@@ -40,7 +40,7 @@ This is not a chapter about "tips and tricks." This is a chapter about understan
 | ↩ spirals back | Ch 13: Agent Patterns | Claude Code is a framework that implements these patterns |
 | ↪ spirals forward | Ch 24: MCP Servers | Extend Claude Code with external tools |
 | ↪ spirals forward | Ch 27: Harness Architecture | See the full architecture under the hood |
-| ↪ spirals forward | Ch 33: Skills Internals | How skills are parsed, matched, and injected |
+| ↪ spirals forward | Ch 33: Skills, Plugins & Distribution | How skills are parsed, matched, and injected |
 
 ---
 

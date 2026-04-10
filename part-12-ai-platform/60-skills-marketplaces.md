@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 60
   TITLE: Skills Marketplaces & Knowledge Sharing
-  PART: XII — AI Platform Engineering
+  PART: 12 — AI Platform Engineering
   PHASE: 2 — Become an Expert
   PREREQS: Ch 25 (skills/plugins/automation), Ch 33 (skill architecture internals), Ch 59 (internal AI tools)
   KEY_TOPICS: skills marketplace, Dojo pattern, Sensei recommender, Git-backed skills, skill lifecycle, quality control, knowledge compounding, skill discovery, company knowledge, MCP + RAG
@@ -12,7 +12,7 @@
 
 # Chapter 60: Skills Marketplaces & Knowledge Sharing
 
-> **Part XII — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 25, Ch 33, Ch 59 | Difficulty: Advanced | Language: TypeScript + Python
+> **Part 12 — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 25, Ch 33, Ch 59 | Difficulty: Advanced | Language: TypeScript + Python
 
 In Chapter 25, you learned to write skills: markdown files with instructions that customize how an AI agent behaves. In Chapter 33, you studied how Claude Code packages, distributes, and protects skills internally. In Chapter 59, you built the internal AI platform. Now you build the system that lets every skill, prompt, and workflow that anyone creates become available to everyone else.
 

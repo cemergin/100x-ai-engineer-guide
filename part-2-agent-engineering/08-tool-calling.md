@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 8
   TITLE: Tool Calling
-  PART: II — Agent Engineering
+  PART: 2 — Agent Engineering
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 3 (LLM API calls), Ch 5 (Zod schemas, structured output)
   KEY_TOPICS: tool definitions, function calling, Zod parameter schemas, execute pattern, description engineering, multi-tool selection
@@ -12,7 +12,7 @@
 
 # Chapter 8: Tool Calling
 
-> **Part II — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 3, Ch 5 | Difficulty: Intermediate
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 3, Ch 5 | Difficulty: Intermediate
 
 An LLM that can only generate text is like a brain in a jar. It can think, reason, even argue -- but it can't *do* anything. It can't look up today's date. It can't read a file. It can't search the web. It's stuck generating plausible-sounding text based on training data that stopped months or years ago.
 
@@ -31,12 +31,12 @@ If you've built structured output with Zod in Chapter 5, you already know half o
 - Common pitfalls and best practices
 
 ### Related Chapters
-- **Ch 5 (Structured Output)** -- same Zod schema pattern, now used for tool parameters
-- **Ch 3 (Your First LLM Call)** -- the LLM chooses which function to invoke
-- **Ch 9 (The Agent Loop)** -- tools run inside the loop; this chapter defines them
-- **Ch 19 (Single-Turn Evals)** -- evaluate whether the LLM picks the right tool
-- **Ch 24 (MCP Servers)** -- MCP servers ARE tools, exposed over a protocol
-- **Ch 30 (Tool Execution Internals)** -- how Claude Code manages tool execution at scale
+- **Ch 5 (Structured Output)** — same Zod schema pattern, now used for tool parameters
+- **Ch 3 (Your First LLM Call)** — the LLM chooses which function to invoke
+- **Ch 9 (The Agent Loop)** — tools run inside the loop; this chapter defines them
+- **Ch 19 (Single-Turn Evals)** — evaluate whether the LLM picks the right tool
+- **Ch 24 (MCP Servers)** — MCP servers ARE tools, exposed over a protocol
+- **Ch 30 (Tool Execution Internals)** — how Claude Code manages tool execution at scale
 
 ---
 

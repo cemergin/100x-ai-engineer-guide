@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 62
   TITLE: AI Adoption & Enablement
-  PART: XII — AI Platform Engineering
+  PART: 12 — AI Platform Engineering
   PHASE: 2 — Become an Expert
   PREREQS: Ch 59 (internal AI tools), Ch 60 (skills marketplaces), Ch 61 (self-reinforcing systems), ideally ALL previous chapters
   KEY_TOPICS: AI adoption, enablement, Ramp playbook, proficiency levels, leaderboards, hub-and-spoke, measuring impact, hiring, cost argument, organizational change, culture
@@ -12,7 +12,7 @@
 
 # Chapter 62: AI Adoption & Enablement
 
-> **Part XII — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 59-61 (and ideally all previous) | Difficulty: All levels | Language: Architecture + Strategy
+> **Part 12 — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 59-61 (and ideally all previous) | Difficulty: All levels | Language: Architecture + Strategy
 
 This is the last chapter of the guide.
 
@@ -38,6 +38,7 @@ This chapter is written differently from the others. It is less code and more ar
 - The spiral map: how everything connects
 
 ### Related Chapters
+- **Ch 23-26 (Harness Engineering)** -- spirals back: individual harness mastery is the foundation of org-wide adoption
 - **Ch 59 (Building Internal AI Tools)** -- the platform that enables adoption
 - **Ch 60 (Skills Marketplaces)** -- the knowledge-sharing system that compounds
 - **Ch 61 (Self-Reinforcing Systems)** -- the feedback loops that improve over time
@@ -860,9 +861,76 @@ But starting today still gives you an advantage over starting next month. The pl
 
 ---
 
-## 12. The Spiral Map: How Everything Connects
+## 14. Anti-Patterns: What Kills AI Adoption
 
-### 12.1 From Chapter 0 to Chapter 62
+### 14.1 The Mandate Without the Product
+
+"Starting Monday, everyone must use AI for all code reviews." This creates resentment and compliance-theater. People use the tool the minimum required amount, produce mediocre results, and conclude that AI does not work.
+
+**Fix:** Build a code review skill so good that people *want* to use it. When the AI review catches a real bug on the first try, you do not need a mandate.
+
+### 14.2 The Innovation Theater
+
+An executive gives a talk about AI transformation. A task force is formed. A strategy document is written. Monthly presentations are given about the AI strategy. Six months later, the tools are the same as before the talk.
+
+**Fix:** Stop strategizing, start building. One engineer with a Claude Code subscription produces more AI adoption than a 20-slide strategy deck.
+
+### 14.3 The Shadow AI Problem
+
+Without an official platform, people use personal accounts for work tasks. Customer data goes into public AI services. Confidential documents get pasted into ChatGPT. Security has no visibility.
+
+**Fix:** Build the platform. The best way to prevent shadow AI is to provide an official alternative that is better than the shadow tools. Glass's zero-config SSO approach (Ch 59) solves this because the official tool is easier to use than the shadow alternative.
+
+### 14.4 The Token Police
+
+Someone in finance sees the AI bill and mandates token limits. Engineers get 1000 tokens/day. Usage drops 80%. The most productive AI users -- the ones generating the most value -- are the first to hit limits.
+
+**Fix:** Frame AI spend as investment, not cost (Section 12). Show the math: $50/month per user producing 20% more output from a $200K/year employee is a 40x return.
+
+### 14.5 The Single Champion Failure
+
+One passionate engineer drives all AI adoption. They leave the company. Adoption drops to zero because the knowledge and momentum were in their head, not in a system.
+
+**Fix:** Hub-and-spoke (Section 6). The skills marketplace (Ch 60). Self-reinforcing systems (Ch 61). Build the platform so it works without any single person.
+
+---
+
+## 15. Governance and Responsible AI
+
+### 15.1 What Governance Looks Like in Practice
+
+AI governance does not mean a committee that meets monthly. It means engineering constraints that are enforced by the system.
+
+**Data access governance.** The SSO-driven tool discovery from Chapter 59 enforces data access at the tool level. If you do not have Salesforce access in Okta, the AI tool does not have Salesforce access either. This is governance-by-architecture, not governance-by-policy.
+
+**Audit logging.** Every tool call, every data access, every generated output is logged. When compliance asks "did anyone use AI to access customer financial data last Tuesday?" you can answer in seconds.
+
+**Content governance.** The system prompt (Ch 59, Section 7) includes explicit constraints: do not repeat PII, do not generate harmful content, do not take destructive actions without confirmation. These are enforced by the platform, not by user behavior.
+
+**Model governance.** Track which models are used, by whom, for what purpose. When a model provider updates their model and behavior changes, your eval pipelines (Ch 51) catch it.
+
+### 15.2 The Governance Checklist
+
+```
+BEFORE LAUNCHING AN INTERNAL AI PLATFORM
+
+[ ] Data access is controlled via SSO scoping
+[ ] All tool calls are logged with user ID, timestamp, and data accessed
+[ ] System prompt includes PII handling instructions
+[ ] Destructive actions require explicit user confirmation
+[ ] Sensitive tools (financial data, customer records) have additional auth
+[ ] Eval pipelines run on a schedule to detect quality degradation
+[ ] Users can report problematic outputs (feedback mechanism)
+[ ] Legal has reviewed the data processing implications
+[ ] Security has reviewed the network architecture
+[ ] There is a documented incident response process for AI-specific failures
+```
+
+---
+
+## 16. The Spiral Map: How Everything Connects
+
+### 16.1 From Chapter 0 to Chapter 62
 
 This guide has been a spiral. Every concept appeared multiple times at increasing depth. Now, at the end, you can see the full pattern:
 
@@ -918,7 +986,7 @@ ADOPTION (Ch 23)
   -> Organizational enablement (Ch 62)
 ```
 
-### 12.2 The Six Key Principles, Revisited
+### 16.2 The Six Key Principles, Revisited
 
 1. **The harness matters more than the model.** (Ch 27, Ch 59) A well-configured system around a good model beats a great model with no system. This is why Glass works: it is a harness, not just an LLM.
 
@@ -934,7 +1002,7 @@ ADOPTION (Ch 23)
 
 ---
 
-## 13. Chapter Summary
+## 17. Chapter Summary
 
 AI adoption is organizational engineering, not technology deployment. The Ramp playbook works because it treats AI as a platform problem, not a tool problem: build a great product (Glass), share knowledge automatically (Dojo), remove every constraint (no limits), and create the conditions for compounding improvement (leaderboards, office hours, all-hands demos).
 

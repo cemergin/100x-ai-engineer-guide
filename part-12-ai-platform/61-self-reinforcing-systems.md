@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 61
   TITLE: Self-Reinforcing AI Systems
-  PART: XII — AI Platform Engineering
+  PART: 12 — AI Platform Engineering
   PHASE: 2 — Become an Expert
   PREREQS: Ch 21 (eval-driven development), Ch 26 (coding agents), Ch 51 (production eval pipelines), Ch 60 (skills marketplace)
   KEY_TOPICS: self-reinforcing systems, feedback loops, eval-driven improvement, automated experimentation, user feedback, AutoDream, agents improving agents, prompt optimization, safety bounds, recursive improvement
@@ -12,7 +12,7 @@
 
 # Chapter 61: Self-Reinforcing AI Systems
 
-> **Part XII — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 21, Ch 26, Ch 51, Ch 60 | Difficulty: Advanced | Language: TypeScript + Python
+> **Part 12 — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 21, Ch 26, Ch 51, Ch 60 | Difficulty: Advanced | Language: TypeScript + Python
 
 In Chapter 21, you built the eval-driven development loop: write an eval, run it, analyze results, improve the prompt, run it again. In Chapter 26, you learned how coding agents can be directed to improve themselves. In Chapter 51, you built production eval pipelines that run continuously. In Chapter 60, you built a skills marketplace where human feedback drives improvement. Now you close the loop: systems where the output of the system improves the system itself.
 

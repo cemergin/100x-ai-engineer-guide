@@ -34,6 +34,7 @@ This chapter covers the deployment landscape for AI applications: serverless fun
 - **Ch 3 (Your First LLM Call)** -- you made the API calls; now deploy them
 - **Ch 6 (Building a Chat Interface)** -- the chat UI you built; now deploy the full stack
 - **Ch 9 (The Agent Loop)** -- agent loops need special deployment considerations
+- **Ch 22 (Telemetry & Tracing)** -- spirals back: deploy with telemetry from day one
 - **Ch 48 (AI Security & Guardrails)** -- security requirements shape deployment choices
 - **Ch 54 (API Gateway)** -- put a gateway in front of what you deploy here
 - **Ch 55 (Sandboxing Agents)** -- isolate the dangerous workloads from this chapter

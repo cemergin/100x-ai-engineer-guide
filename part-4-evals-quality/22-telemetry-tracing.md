@@ -31,7 +31,7 @@ This chapter instruments your AI system so you can see everything, catch problem
 
 ### Related Chapters
 
-- **Ch 21 (Eval-Driven Development)** — Tracing supports the assessment loop.
+- **Ch 21 (Eval-Driven Development)** — Tracing supports the eval loop.
 - **Ch 51 (Production Eval Pipelines)** — Production assessment pipelines built on telemetry.
 - **Ch 52 (AI Observability & Incidents)** — Full observability stack for AI.
 

@@ -31,7 +31,9 @@ This chapter covers the full lifecycle of training data: formats, collection str
 - Tools: Hugging Face datasets, Argilla for annotation
 
 ### Related Chapters
+- **Ch 15 (The RAG Pipeline)** — spirals back: RAG retrieval quality depends on the same data curation principles
 - **Ch 18 (Why Evals Matter)** — spirals from evaluation datasets to training datasets
+- **Ch 21 (Eval-Driven Development)** — spirals back: use eval results to identify gaps in your training data
 - **Ch 45 (Fine-Tuning with LoRA)** — your fine-tune is only as good as this data
 - **Ch 47 (Quantization & Deployment)** — deploy the model trained on this data
 

@@ -30,6 +30,12 @@
 
 **AutoDream** — Claude Code's background memory consolidation system. During idle time, the agent reviews recent interactions, identifies patterns, and consolidates them into long-term memory. Ch 28, Ch 61.
 
+**Agentic Workflow** — A workflow where an AI agent autonomously decides which tools to use, in what order, and when to stop. Contrasts with deterministic pipelines where each step is pre-defined. Ch 9, Ch 13.
+
+**API Gateway** — A server that sits between clients and AI providers, handling rate limiting, caching, failover, and cost tracking. Ch 54.
+
+**Approval Flow** — A mechanism where certain AI actions (e.g., writing files, executing code, sending messages) require explicit human confirmation before execution. Ch 11, Ch 30.
+
 **AWQ (Activation-Aware Weight Quantization)** — A quantization method that preserves important weights at higher precision based on activation patterns. Ch 47.
 
 ## B
@@ -48,9 +54,15 @@
 
 **Bias (Fairness)** — Systematic errors in AI outputs that reflect prejudices in training data or model design. Ch 48.
 
+**BM25** — A probabilistic ranking function for keyword-based document retrieval. The standard baseline for sparse retrieval systems. Ch 17.
+
+**Brownfield** — Integrating AI into an existing codebase or product, as opposed to greenfield (building from scratch). Most real-world AI engineering is brownfield. Ch 3.
+
 ## C
 
 **Cache-Break Vector** — A technique used in context window management where specific tokens or patterns are inserted to prevent prompt caching from reusing stale context. Ch 29.
+
+**Canary Deployment** — A deployment strategy where a change is rolled out to a small percentage of traffic first, monitored for issues, then gradually expanded. Essential for prompt and model changes in AI systems. Ch 56.
 
 **Chain-of-Thought (CoT)** — A prompting technique that asks the LLM to show its reasoning step by step before giving a final answer. Improves accuracy on complex tasks. Ch 4.
 
@@ -76,6 +88,12 @@
 
 **Cross-Attention** — An attention mechanism where the queries come from one sequence and the keys/values come from another. Used in encoder-decoder transformers. Ch 38.
 
+**Content Filtering** — Automated screening of AI inputs and outputs to block harmful, offensive, or policy-violating content. Ch 48.
+
+**Council Pattern** — A multi-agent deliberation pattern where multiple models with different perspectives evaluate the same question, cross-review each other, and a synthesizer produces a verdict. Ch 58.
+
+**Cron Job (AI)** — A scheduled background task that triggers an AI agent on a recurring schedule. Used for digests, monitoring, and automated reporting. Ch 25, Ch 59.
+
 **Cursor** — An AI-powered IDE that integrates LLM capabilities directly into the code editor. Ch 27.
 
 ## D
@@ -86,9 +104,19 @@
 
 **Dense Retrieval** — Using embedding similarity (rather than keyword matching) to find relevant documents. Ch 14, Ch 17.
 
+**Diffusion Model** — A generative model that learns to reverse a noise-adding process: starting from pure noise, it iteratively denoises to produce images guided by text prompts. Stable Diffusion is the most widely used open-source example. Ch 41.
+
 **Distillation** — Training a smaller "student" model to mimic the behavior of a larger "teacher" model. Ch 47.
 
+**DreamBooth** — A technique for personalizing diffusion models by fine-tuning on 3-10 images of a specific subject. Combined with LoRA for memory efficiency. Ch 41.
+
 **Dojo** — Ramp's internal skills marketplace with 350+ Git-backed, versioned, code-reviewed AI skills. Ch 60.
+
+**Decoder** — The part of a transformer that generates output text token by token. GPT models are decoder-only architectures. Ch 38, Ch 43.
+
+**Decision Boundary** — In ML, the surface that separates different classes in the feature space. The goal of training is to find the optimal boundary. Ch 34.
+
+**DPO (Direct Preference Optimization)** — An alternative to RLHF that directly optimizes model behavior based on human preferences without needing a separate reward model. Ch 44.
 
 **Dropout** — A regularization technique that randomly sets a fraction of neuron outputs to zero during training to prevent overfitting. Ch 36.
 
@@ -106,6 +134,12 @@
 
 **Eval-Driven Development** — A development methodology where you write evaluations first, then iteratively improve the system until evals pass. Analogous to test-driven development. Ch 21, Ch 61.
 
+**Egress Proxy** — A network proxy that controls which external services an AI agent can reach. Essential for sandboxed agent deployments. Ch 55.
+
+**Epoch** — One complete pass through the entire training dataset during model training. Fine-tuning typically uses 1-5 epochs. Ch 36, Ch 45.
+
+**Escape Velocity (Adoption)** — The point at which a skills marketplace or AI platform generates new content faster than content is deprecated, creating self-sustaining growth. Ch 60.
+
 ## F
 
 **Feature** — In ML, an individual measurable property of an input. In text, features might be token counts, embeddings, or TF-IDF scores. Ch 34.
@@ -113,6 +147,16 @@
 **Few-Shot Prompting** — Including examples of desired input-output pairs in the prompt to guide the LLM's behavior. Ch 4.
 
 **Fine-Tuning** — Continuing the training of a pre-trained model on a domain-specific dataset to specialize its behavior. Ch 44-47.
+
+**Feedback Loop** — A system where outputs are fed back as inputs to improve future outputs. In AI platforms, user ratings improve prompts which improve outputs which earn better ratings. Ch 61.
+
+**Flywheel** — A self-reinforcing cycle where each component accelerates the others. In skills marketplaces: more skills attract more users, more users create more skills. Ch 60, Ch 61.
+
+**Feature Flag** — A configuration mechanism that controls which features are enabled for which users without code deployment. Used extensively in AI systems for canary rollouts, A/B testing, and kill switches. Ch 56.
+
+**Fluid Compute** — Vercel's infrastructure feature that keeps serverless functions warm between invocations, reducing cold starts for AI workloads. Ch 53.
+
+**Foundation Model** — A large pre-trained model (GPT-4, Claude, Llama) that serves as the base for downstream applications via prompting, fine-tuning, or RAG. Ch 0, Ch 43.
 
 **Function Calling** — See "Tool Calling."
 
@@ -129,6 +173,8 @@
 **GPTQ** — A post-training quantization method that compresses model weights using approximate second-order information. Ch 47.
 
 **Gradient Descent** — An optimization algorithm that iteratively adjusts model parameters in the direction that minimizes the loss function. Ch 36.
+
+**Grounding** — Connecting AI outputs to verifiable facts, typically by providing source documents (RAG) or tool results. Reduces hallucination. Ch 15, Ch 48.
 
 **Guardrails** — Safety mechanisms that constrain AI system behavior. Includes input validation, output filtering, and tool permission systems. Ch 48.
 
@@ -148,9 +194,15 @@
 
 **HyDE (Hypothetical Document Embeddings)** — A retrieval technique where the query is used to generate a hypothetical answer, which is then embedded and used for similarity search. Ch 17.
 
+**Hyperparameter** — A configuration value set before training begins (learning rate, batch size, number of layers). Contrasts with parameters (weights), which are learned during training. Ch 36, Ch 45.
+
 **Hybrid Search** — Combining dense (embedding) and sparse (keyword) retrieval to leverage the strengths of both approaches. Ch 17.
 
 ## I
+
+**Idempotent** — An operation that produces the same result whether executed once or multiple times. Important for agent tool calls that may be retried on failure. Ch 8.
+
+**Input Tokens** — Tokens in the prompt sent to the LLM (system prompt + conversation history + user message). Cheaper than output tokens for most providers. Ch 0, Ch 49.
 
 **Inference** — The process of running a trained model on new inputs to generate predictions or outputs. The "using" phase as opposed to the "training" phase. Ch 0, Ch 40, Ch 57.
 
@@ -158,15 +210,25 @@
 
 ## J
 
+**Jailbreak** — An attack that tricks an AI model into bypassing its safety restrictions. Distinct from prompt injection, which overrides instructions. Ch 48.
+
 **JSON Mode** — A provider-specific setting that constrains the LLM to output valid JSON. More reliable than asking for JSON in the prompt. Ch 5.
 
 ## K
 
 **KAIROS** — Claude Code's three-layer memory system: session memory, project memory (CLAUDE.md), and global memory. Ch 28.
 
+**Key-Value Cache (KV Cache)** — A mechanism that caches intermediate attention computations to avoid redundant work during autoregressive generation. Speeds up inference. Ch 29, Ch 57.
+
 **Knowledge Compounding** — The phenomenon where shared AI skills create superlinear value: more skills attract more users, more users create more skills, and each skill raises the floor for everyone. Ch 60, Ch 62.
 
+**Knowledge Distillation** — See "Distillation."
+
 ## L
+
+**Label** — In supervised learning, the correct answer associated with a training example. Used to compute the loss during training. Ch 34, Ch 46.
+
+**Layer** — A single transformation step in a neural network. Each layer contains weights and applies a computation (linear transformation + activation function). Ch 36.
 
 **L0-L3 Proficiency Levels** — Ramp's framework for measuring AI adoption maturity: L0 (Unaware), L1 (Experimenter), L2 (Practitioner), L3 (Builder). Ch 62.
 
@@ -180,9 +242,17 @@
 
 **LoRA (Low-Rank Adaptation)** — A parameter-efficient fine-tuning technique that adds small trainable matrices to a frozen model. Dramatically reduces the compute needed for fine-tuning. Ch 45.
 
+**Learning Rate** — A hyperparameter that controls how large each weight update step is during training. Too high causes divergence; too low causes slow training. Ch 36, Ch 45.
+
+**Lethal Trifecta** — Simon Willison's term for the three conditions that create genuinely dangerous AI vulnerabilities: (1) access to private data, (2) ability to take actions, and (3) exposure to untrusted input. Any two are manageable; all three together are explosive. Ch 48, Ch 55.
+
+**Llama** — Meta's family of open-source large language models. Llama 3 is one of the most capable open models. Ch 43, Ch 47.
+
 **Loss Function** — A mathematical function that measures how far a model's predictions are from the correct answers. Training minimizes this function. Ch 36.
 
 ## M
+
+**Masked Language Modeling (MLM)** — A pre-training objective where random tokens in the input are masked and the model learns to predict them. Used by BERT. Ch 38.
 
 **Map-Reduce (Agent Pattern)** — A multi-agent pattern where multiple agents process items in parallel (map) and a synthesis agent combines results (reduce). Ch 58.
 
@@ -198,9 +268,13 @@
 
 **Multi-Modal** — AI models that process multiple types of input (text, images, audio, video). Ch 7.
 
+**Mixture of Experts (MoE)** — A model architecture where only a subset of parameters (experts) are activated for each input, allowing larger total capacity at lower inference cost. Ch 43.
+
 **Multi-Turn** — A conversation with multiple back-and-forth exchanges between user and AI. Distinct from single-turn (one question, one answer). Ch 6, Ch 20.
 
 ## N
+
+**Next-Token Prediction** — The fundamental task of autoregressive language models: given a sequence of tokens, predict the most likely next token. This simple objective produces complex capabilities. Ch 0, Ch 39.
 
 **N+1 Query Problem** — A database anti-pattern where an initial query triggers N additional queries. Often identified in AI-generated code. Ch 58.
 
@@ -208,9 +282,15 @@
 
 **Neural Network** — A computational model inspired by biological neural networks, consisting of layers of interconnected nodes (neurons) that learn to transform inputs into outputs. Ch 36.
 
+**Non-Deterministic** — Producing different outputs for the same input. LLMs are non-deterministic by default due to sampling. This is why evals, not unit tests, are needed. Ch 0, Ch 18.
+
 **Normalization** — Scaling input features to a standard range (e.g., 0-1 or mean-0, std-1) to improve training stability and speed. Ch 35.
 
 ## O
+
+**Observability** — The ability to understand an AI system's internal state by examining its outputs: logs, traces, metrics, and eval results. Ch 22, Ch 52.
+
+**Ollama** — A tool for running open-source LLMs locally with a simple command-line interface. Ch 43, Ch 47.
 
 **One-Shot Prompting** — Including a single example in the prompt. Between zero-shot (no examples) and few-shot (multiple examples). Ch 4.
 
@@ -218,9 +298,19 @@
 
 **Output Tokens** — Tokens generated by the LLM in its response. Typically more expensive than input tokens. Ch 0, Ch 49.
 
+**OpenTelemetry** — An open standard for distributed tracing and metrics collection. Used for AI system observability. Ch 22, Ch 52.
+
 **Overfitting** — When a model performs well on training data but poorly on unseen data. Indicates the model has memorized rather than learned. Ch 36, Ch 46.
 
 ## P
+
+**Parallel Execution (Multi-Agent)** — Running multiple agents simultaneously on independent tasks. Fan-out/fan-in pattern for throughput. Ch 58.
+
+**Perplexity** — A measure of how well a language model predicts a sequence. Lower perplexity = better prediction. Used to evaluate language model quality. Ch 39.
+
+**Persona Prompt** — A system prompt that assigns the AI a specific role or character to improve output quality for specialized tasks. Ch 4.
+
+**PII (Personally Identifiable Information)** — Data that can identify individuals (names, emails, SSNs). AI systems must detect and handle PII carefully. Ch 48.
 
 **PEFT (Parameter-Efficient Fine-Tuning)** — A family of techniques (LoRA, QLoRA, adapters) that fine-tune only a small subset of model parameters. Ch 45.
 
@@ -240,7 +330,13 @@
 
 **Prompt Injection** — An attack where malicious text in the input overrides the system prompt's instructions. The primary security vulnerability in LLM applications. Ch 48.
 
+**Prompt Template** — A reusable prompt structure with placeholders for dynamic content. Enables consistent, maintainable prompts across an application. Ch 4.
+
+**Provider** — A company that offers LLM access via API (Anthropic, OpenAI, Google, Mistral, etc.). Different providers have different models, pricing, and capabilities. Ch 2.
+
 ## Q
+
+**Query Expansion** — Transforming a user query into multiple variant queries to improve retrieval recall. Techniques include synonym expansion and HyDE. Ch 17.
 
 **QLoRA** — Quantized LoRA: combines 4-bit quantization of the base model with LoRA fine-tuning. Enables fine-tuning large models on consumer hardware. Ch 45.
 
@@ -262,9 +358,23 @@
 
 **RLHF (Reinforcement Learning from Human Feedback)** — A training technique where the model is fine-tuned using human preference judgments. Key to making LLMs helpful and safe. Ch 0.
 
+**Red Teaming** — Deliberately attempting to break an AI system by finding adversarial inputs, bypasses, and failure modes. Ch 48.
+
+**Regression (AI)** — When an AI system's performance on a metric decreases, often after a model update, prompt change, or dependency change. Ch 51, Ch 56.
+
+**Reward Model** — In RLHF, a model trained on human preferences that scores outputs. Used to guide reinforcement learning. Ch 0.
+
+**Risk Tier** — A classification of tool operations by their potential for harm. Read-only tools are low risk; destructive tools (delete, send, deploy) are high risk. Ch 30.
+
 **Rollback** — Reverting an AI system to a previous known-good version when a new version degrades. Ch 56, Ch 61.
 
+**RoPE (Rotary Position Embedding)** — A positional encoding scheme that encodes relative position through rotation of embedding vectors. Used in Llama and many modern models. Ch 38.
+
 ## S
+
+**Scaffold** — See "Harness." The system surrounding an LLM that makes it useful: tool calling, memory, context management, permissions. Ch 27.
+
+**Scorer** — A function that evaluates the quality of an AI output, producing a numerical score. Can be deterministic (regex match, exact match) or LLM-based (LLM-as-judge). Ch 19, Ch 20.
 
 **Sampling** — The process of randomly selecting the next token from the LLM's probability distribution, controlled by parameters like temperature and top-p. Ch 0, Ch 39.
 
@@ -288,13 +398,25 @@
 
 **Sparse Retrieval** — Finding documents using keyword matching (e.g., TF-IDF, BM25) rather than embedding similarity. Ch 17.
 
+**Speculative Decoding** — An inference optimization where a small draft model generates candidate tokens that a larger model then verifies in parallel. Speeds up generation by 2-3x with no quality loss. Ch 47, Ch 57.
+
 **Streaming** — Sending LLM output to the user token-by-token as it is generated, rather than waiting for the complete response. Reduces perceived latency. Ch 3, Ch 6.
 
 **Structured Output** — Constraining LLM output to a specific format (usually JSON matching a schema) for reliable parsing. Ch 5.
 
+**Stop Condition** — The criterion that determines when an agent loop should terminate. Can be a special token, maximum iterations, LLM decision (end_turn), or quality threshold. Ch 9.
+
+**Supervised Fine-Tuning (SFT)** — Fine-tuning with labeled examples (input-output pairs). The most common form of fine-tuning for LLMs. Ch 45, Ch 46.
+
+**Synthetic Data** — Training data generated by an AI model rather than collected from real-world sources. Used to augment datasets when real data is scarce. Ch 46.
+
 **System Prompt** — A special message at the beginning of a conversation that sets the AI's behavior, personality, and constraints. Ch 4.
 
 ## T
+
+**T5 (Text-to-Text Transfer Transformer)** — An encoder-decoder model that frames every NLP task as text-to-text. Input: text, output: text. Ch 38, Ch 43.
+
+**Task Decomposition** — Breaking a complex task into smaller subtasks that can be handled by individual agents or sequential steps. The coordinator pattern relies on this. Ch 58.
 
 **Temperature** — A parameter that controls the randomness of LLM output. Higher temperature = more random/creative. Lower = more focused/deterministic. Ch 0, Ch 39.
 
@@ -322,7 +444,13 @@
 
 **Transformer** — The neural network architecture behind all modern LLMs. Based on self-attention mechanisms and positional encoding. Introduced in "Attention Is All You Need" (2017). Ch 38.
 
+**Transfer Learning** — Using knowledge from a model trained on one task to improve performance on a different task. Pre-training + fine-tuning is the dominant form. Ch 44.
+
+**Trust Spectrum** — A model for categorizing AI tool operations from fully trusted (no confirmation) to fully distrusted (requires approval). Ch 11, Ch 30.
+
 ## U
+
+**Upsert** — Insert a record if it does not exist, or update it if it does. Common operation in vector databases when refreshing embeddings. Ch 14.
 
 **Underfitting** — When a model is too simple to capture patterns in the data. Performs poorly on both training and test data. Ch 36.
 
@@ -330,9 +458,19 @@
 
 **Vector Database / Vector Store** — A database optimized for storing and querying embedding vectors using similarity search. Examples: Pinecone, Weaviate, Qdrant, pgvector. Ch 14.
 
+**Vector Similarity Search** — Finding the nearest vectors to a query vector in a vector database. The core operation of semantic search and RAG retrieval. Ch 14.
+
 **Vercel AI SDK** — A TypeScript SDK for building AI-powered applications. Provides streaming, tool calling, and multi-provider support. Ch 6, Ch 13.
 
+**vLLM** — A high-throughput inference engine for LLMs that uses PagedAttention for efficient memory management. Ch 57.
+
 ## W
+
+**Warm-Up** — Gradually increasing the learning rate at the start of training to improve stability. Commonly used with transformers. Ch 36, Ch 45.
+
+**WebSocket** — A persistent bidirectional communication protocol. Used to stream AI responses to client applications in real-time. Ch 6, Ch 59.
+
+**Window (Sliding)** — A technique for managing context by keeping only the most recent N messages or tokens. Simple but loses early context. Ch 12.
 
 **Weight** — A numerical parameter in a neural network that is learned during training. Weights determine how inputs are transformed into outputs. Ch 36.
 
@@ -345,6 +483,8 @@
 **Zero-Shot Prompting** — Asking an LLM to perform a task with no examples. Relies entirely on the model's pre-trained knowledge. Ch 4.
 
 **Zero-Shot Classification** — Classifying text into categories that were not part of the model's fine-tuning. Uses the model's general understanding to classify by description rather than label. Ch 40.
+
+**Zod** — A TypeScript-first schema validation library used extensively for defining tool parameters and structured output schemas in AI applications. Ch 5, Ch 8.
 
 ---
 

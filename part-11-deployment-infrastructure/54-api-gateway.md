@@ -35,6 +35,8 @@ An API gateway sits between your application and your LLM providers. It handles 
 ### Related Chapters
 - **Ch 2 (The AI Engineer's Landscape)** -- providers overview; now manage them in production
 - **Ch 3 (Your First LLM Call)** -- the API calls you made; now protect them
+- **Ch 22 (Telemetry & Tracing)** -- spirals back: gateway telemetry feeds observability dashboards
+- **Ch 48 (AI Security & Guardrails)** -- spirals back: gateway enforces security controls at the infrastructure level
 - **Ch 49 (Cost Engineering)** -- application-level cost control; now enforce at infrastructure
 - **Ch 53 (Deploying LLM Applications)** -- you deployed the app; now put a gateway in front
 - **Ch 55 (Sandboxing Agents)** -- network-level controls complement gateway controls

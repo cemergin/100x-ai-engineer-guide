@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 59
   TITLE: Building Internal AI Tools
-  PART: XII — AI Platform Engineering
+  PART: 12 — AI Platform Engineering
   PHASE: 2 — Become an Expert
   PREREQS: Ch 23-25 (harness engineering), Ch 27 (harness architecture), Ch 55 (sandboxing), Ch 58 (multi-agent orchestration)
   KEY_TOPICS: internal AI tools, Glass pattern, zero-config setup, SSO integration, Agent SDK, tool connectors, build vs buy, OpenClaw pattern, headless mode, personal digests, platform architecture
@@ -12,7 +12,7 @@
 
 # Chapter 59: Building Internal AI Tools
 
-> **Part XII — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 23-25, Ch 27, Ch 55, Ch 58 | Difficulty: Advanced | Language: TypeScript + Python
+> **Part 12 — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 23-25, Ch 27, Ch 55, Ch 58 | Difficulty: Advanced | Language: TypeScript + Python
 
 In Chapter 23, you learned to use Claude Code as an individual productivity tool. In Chapter 27, you understood how agent harnesses work internally. In Chapter 55, you learned to sandbox agents safely. In Chapter 58, you built multi-agent orchestration. Now you build the platform that packages all of that into a tool anyone in your organization can use on day one.
 
@@ -1363,4 +1363,4 @@ In Chapter 60, we build the system for sharing what works: a skills marketplace 
 
 ---
 
-*Previous: [Ch 58 — Multi-Agent Orchestration](./58-multi-agent-orchestration.md)* | *Next: [Ch 60 — Skills Marketplaces & Knowledge Sharing](./60-skills-marketplaces.md)*
+*Previous: [Ch 58 -- Multi-Agent Orchestration](./58-multi-agent-orchestration.md)* | *Next: [Ch 60 -- Skills Marketplaces & Knowledge Sharing](./60-skills-marketplaces.md)*

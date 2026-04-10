@@ -30,7 +30,7 @@ The good news: if you can make a text API call (Ch 3), you can do all of this. T
 ### Related Chapters
 - **Ch 3 (Your First LLM Call)** — spirals back: text-only calls expand to all modalities
 - **Ch 5 (Structured Output)** — combine vision with structured extraction
-- **Ch 41 (Image Generation Deep Dive)** — spirals forward to Stable Diffusion, image-to-image, DreamBooth
+- **Ch 41 (Image Generation)** — spirals forward to Stable Diffusion, image-to-image, DreamBooth
 
 ---
 

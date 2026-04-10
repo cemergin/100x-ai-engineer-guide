@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 11
   TITLE: Human-in-the-Loop
-  PART: II — Agent Engineering
+  PART: 2 — Agent Engineering
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 9 (agent loop), Ch 10 (agent memory)
   KEY_TOPICS: approval gates, synchronous approvals, asynchronous approvals, trust spectrum, risk classification, permission systems
@@ -12,7 +12,7 @@
 
 # Chapter 11: Human-in-the-Loop
 
-> **Part II — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 9, Ch 10 | Difficulty: Intermediate
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 9, Ch 10 | Difficulty: Intermediate
 
 The agent you built in Chapter 9 can do real things. It can read files, write files, and loop autonomously until a task is done. The memory system from Chapter 10 makes it smarter over time. But here's the uncomfortable truth: an autonomous agent with file system access is one bad tool call away from deleting your production config, overwriting your database migrations, or committing secrets to a public repo.
 
@@ -30,11 +30,11 @@ Human-in-the-loop isn't just about safety, though. It's about trust. Users who c
 - Deterministic vs LLM-interpreted approval rules
 
 ### Related Chapters
-- **Ch 9 (The Agent Loop)** -- approvals interrupt the loop between "decide" and "execute"
-- **Ch 10 (Agent Memory)** -- memory of past approvals informs future decisions
-- **Ch 25 (Skills, Plugins & Automation)** -- approval flows in automated pipelines
-- **Ch 30 (Tool Execution & Permissions)** -- Claude Code's permission architecture in detail
-- **Ch 48 (AI Security)** -- security implications of agent actions
+- **Ch 9 (The Agent Loop)** — approvals interrupt the loop between "decide" and "execute"
+- **Ch 10 (Agent Memory)** — memory of past approvals informs future decisions
+- **Ch 25 (Skills, Plugins & Automation)** — approval flows in automated pipelines
+- **Ch 30 (Tool Execution & Permissions)** — Claude Code's permission architecture in detail
+- **Ch 48 (AI Security)** — security implications of agent actions
 
 ---
 

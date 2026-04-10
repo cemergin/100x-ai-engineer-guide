@@ -4,7 +4,7 @@
   PART: 4 — Evals & Quality
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 18 (Why Evals Matter), Ch 8 (Tool Calling), Ch 4 (Prompt Engineering), Ch 14 (Semantic Search)
-  KEY_TOPICS: tool selection assessment, output format checking, factual accuracy, scorer functions, custom scorers, assessment framework, mock tools, data files
+  KEY_TOPICS: tool selection eval, output format checking, factual accuracy, scorer functions, custom scorers, eval framework, mock tools, data files
   DIFFICULTY: Intermediate
   LANGUAGE: TypeScript
   UPDATED: 2026-04-10
@@ -16,7 +16,7 @@
 
 Chapter 18 told you *why* evals matter. This chapter shows you *how* to build them for the simplest case: one input, one output. No conversation, no multi-step agent loops — just "given this input, did the system produce a good output?"
 
-This is where you assess the building blocks. Did the LLM pick the right tool? Does the response match the schema? Is the retrieved information accurate? Each of these is a single-turn assessment, and they're the foundation for everything that follows.
+This is where you assess the building blocks. Did the LLM pick the right tool? Does the response match the schema? Is the retrieved information accurate? Each of these is a single-turn eval, and they're the foundation for everything that follows.
 
 ### In This Chapter
 
@@ -24,15 +24,15 @@ This is where you assess the building blocks. Did the LLM pick the right tool? D
 2. Output format checking
 3. Factual accuracy scoring
 4. Writing custom scorer functions
-5. Building a single-turn assessment framework
+5. Building a single-turn eval framework
 
 ### Related Chapters
 
-- **Ch 8 (Tool Calling)** — We'll assess whether the LLM picks the right tool.
-- **Ch 4 (Prompt Engineering)** — Assessments tell you if your prompts work.
+- **Ch 8 (Tool Calling)** — We'll eval whether the LLM picks the right tool.
+- **Ch 4 (Prompt Engineering)** — Evals tell you if your prompts work.
 - **Ch 14 (Semantic Search)** — We'll measure retrieval quality.
 - **Ch 18 (Why Evals Matter)** — The mindset and vocabulary for this chapter.
-- **Ch 21 (Eval-Driven Development)** — Using these assessments to systematically improve.
+- **Ch 21 (Eval-Driven Development)** — Using these evals to systematically improve.
 
 ---
 
@@ -783,7 +783,7 @@ Return JSON: { "syntactically_valid": 0.9, "complete": 0.8, "well_structured": 0
 
 ---
 
-## 5. Building a Single-Turn Assessment Framework
+## 5. Building a Single-Turn Eval Framework
 
 ### 5.1 The Complete Framework
 
@@ -1019,14 +1019,14 @@ main();
 
 ## Summary
 
-You now have a working toolkit for single-turn assessments:
+You now have a working toolkit for single-turn evals:
 
 1. **Tool selection scoring** — Verify the LLM picks the right tool with the right arguments
 2. **Output format checking** — Check schema compliance with Zod validation
 3. **Factual accuracy scoring** — Compare output against ground truth with must-contain/must-not-contain
 4. **Retrieval quality scoring** — Measure precision, recall, and MRR for RAG systems
 5. **Custom scorer functions** — A library of reusable scorers for any need
-6. **A complete assessment framework** — Run suites, aggregate results, identify failures
+6. **A complete eval framework** — Run suites, aggregate results, identify failures
 
 In Chapter 20, we'll extend this to multi-turn conversations: testing agent loops, using LLM-as-judge, and assessing complex workflows where a single input/output is not enough.
 

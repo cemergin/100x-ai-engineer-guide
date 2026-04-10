@@ -35,11 +35,11 @@ The progression is deliberate: write skills (share knowledge) -> build plugins (
 
 | Direction | Chapter | Connection |
 |-----------|---------|------------|
-| <- spirals back | Ch 23: Claude Code Mastery | Skills and plugins extend the harness you configured |
-| <- spirals back | Ch 24: MCP Servers | Plugins can bundle MCP server configurations |
-| <- spirals back | Ch 11: Human-in-the-Loop | Automated pipelines still need approval flows |
-| -> spirals forward | Ch 33: Skills Architecture | How skills are parsed, matched, and injected internally |
-| -> spirals forward | Ch 60: Skills Marketplaces | Skills distributed at organizational scale |
+| ↩ spirals back | Ch 23: Claude Code Mastery | Skills and plugins extend the harness you configured |
+| ↩ spirals back | Ch 24: MCP Servers | Plugins can bundle MCP server configurations |
+| ↩ spirals back | Ch 11: Human-in-the-Loop | Automated pipelines still need approval flows |
+| ↪ spirals forward | Ch 33: Skills, Plugins & Distribution | How skills are parsed, matched, and injected internally |
+| ↪ spirals forward | Ch 60: Skills Marketplaces | Skills distributed at organizational scale |
 
 ---
 

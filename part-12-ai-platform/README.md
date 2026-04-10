@@ -52,6 +52,7 @@ EVERY PREVIOUS PART
          Ch 58 spirals:
            Ch 9 (one agent loop → many)
            Ch 13 (agent patterns → orchestration patterns)
+           Ch 23-25 (harness skills/plugins → agent configuration in orchestration)
            Ch 32 (coordination internals → production orchestration)
 
          Ch 59 spirals:

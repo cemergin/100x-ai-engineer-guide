@@ -4,7 +4,7 @@
   PART: 4 — Evals & Quality
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 0 (How LLMs Actually Work)
-  KEY_TOPICS: non-determinism, quality measurement, safety, reliability, cost, offline evals, online evals, datasets, synthetic data generation, the assessment mindset
+  KEY_TOPICS: non-determinism, quality measurement, safety, reliability, cost, offline evals, online evals, datasets, synthetic data generation, the eval mindset
   DIFFICULTY: Intermediate
   LANGUAGE: TypeScript
   UPDATED: 2026-04-10
@@ -24,17 +24,17 @@ This is why evals exist. They're the AI equivalent of tests — but designed for
 
 1. Non-determinism: the fundamental challenge
 2. What to measure: quality, safety, reliability, cost
-3. Offline vs online assessments
-4. Building assessment datasets
-5. The assessment mindset
-6. Your first assessment in code
+3. Offline vs online evals
+4. Building eval datasets
+5. The eval mindset
+6. Your first eval in code
 
 ### Related Chapters
 
 - **Ch 0 (How LLMs Actually Work)** — LLMs are probabilistic. This is how you deal with it.
-- **Ch 4 (Prompt Engineering)** — Assessments tell you if your prompts are actually working.
-- **Ch 19 (Single-Turn Assessments)** — The next chapter: actually building assessments.
-- **Ch 51 (Production Assessment Pipelines)** — Phase 2: continuous assessment in production.
+- **Ch 4 (Prompt Engineering)** — Evals tell you if your prompts are actually working.
+- **Ch 19 (Single-Turn Evals)** — The next chapter: actually building evals.
+- **Ch 51 (Production Eval Pipelines)** — Phase 2: continuous eval in production.
 
 ---
 
@@ -259,7 +259,7 @@ const ragPriorities: AssessmentPriority[] = [
 
 ---
 
-## 3. Offline vs Online Assessments
+## 3. Offline vs Online Evals
 
 ### 3.1 Offline Assessments
 
@@ -443,7 +443,7 @@ class OnlineAssessmentTracker {
 
 ---
 
-## 4. Building Assessment Datasets
+## 4. Building Eval Datasets
 
 ### 4.1 Manual Curation
 
@@ -700,11 +700,11 @@ class ProductionCollector {
 
 ---
 
-## 5. The Assessment Mindset
+## 5. The Eval Mindset
 
 ### 5.1 Think Like a QA Engineer for AI
 
-The assessment mindset is different from the developer mindset. Developers think about making things work. QA engineers think about making things break.
+The eval mindset is different from the developer mindset. Developers think about making things work. QA engineers think about making things break.
 
 ```typescript
 // assessment-mindset.ts
@@ -787,11 +787,11 @@ const pricingBotPlan: AssessmentPlan = {
 11. Goto 4
 ```
 
-This is the assessment-driven development loop. Chapter 21 formalizes it into a complete workflow.
+This is the eval-driven development loop. Chapter 21 formalizes it into a complete workflow.
 
 ---
 
-## 6. Your First Assessment in Code
+## 6. Your First Eval in Code
 
 Let's build a simple but complete assessment.
 
@@ -1072,11 +1072,11 @@ You now understand:
 2. **What to measure** — Quality, safety, reliability, and cost across four pillars
 3. **Offline vs online** — Pre-deployment test suites vs production monitoring
 4. **Building datasets** — Manual curation, synthetic generation, and production collection
-5. **The assessment mindset** — Think about failure modes, not just happy paths
-6. **Your first assessment** — A working scorer + runner framework in TypeScript
+5. **The eval mindset** — Think about failure modes, not just happy paths
+6. **Your first eval** — A working scorer + runner framework in TypeScript
 
-In Chapter 19, we'll build on this foundation with specific assessment patterns: tool selection, output format validation, factual accuracy, and custom scorers for single-turn interactions.
+In Chapter 19, we'll build on this foundation with specific eval patterns: tool selection, output format validation, factual accuracy, and custom scorers for single-turn interactions.
 
 ---
 
-*Previous: [Ch 17 — Advanced Retrieval](../part-3-rag-knowledge/17-advanced-retrieval.md)* | *Next: [Ch 19 — Single-Turn Assessments](./19-single-turn-evals.md)*
+*Previous: [Ch 17 — Advanced Retrieval](../part-3-rag-knowledge/17-advanced-retrieval.md)* | *Next: [Ch 19 — Single-Turn Evals](./19-single-turn-evals.md)*

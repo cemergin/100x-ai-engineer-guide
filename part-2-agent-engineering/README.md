@@ -85,4 +85,4 @@ Expect about 3-4 hours to read all six chapters and build the code examples. By 
 
 ---
 
-*Previous: [Part 1 -- Building with LLM APIs](../part-1-building-with-llms/)* | *Next: [Part 3 -- RAG & Knowledge Systems](../part-3-rag-knowledge/)*
+*Previous: [Part 1 — Building with LLM APIs](../part-1-building-with-llms/)* | *Next: [Part 3 — RAG & Knowledge Systems](../part-3-rag-knowledge/)*

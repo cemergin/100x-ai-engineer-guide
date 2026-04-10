@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 10
   TITLE: Agent Memory & State
-  PART: II — Agent Engineering
+  PART: 2 — Agent Engineering
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 6 (conversation history), Ch 9 (the agent loop)
   KEY_TOPICS: short-term memory, working memory, long-term memory, scratchpad patterns, memory retrieval, memory-context trade-off
@@ -12,7 +12,7 @@
 
 # Chapter 10: Agent Memory & State
 
-> **Part II — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 6, Ch 9 | Difficulty: Intermediate → Advanced
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 6, Ch 9 | Difficulty: Intermediate → Advanced
 
 In Chapter 9, you built an agent loop. The messages array is the agent's brain -- it remembers everything from the current conversation. But close the program and it's gone. Start a new conversation and the agent has no idea what happened five minutes ago. It can't learn from past mistakes. It can't remember your preferences. It can't pick up where it left off.
 
@@ -29,11 +29,11 @@ Memory in agent systems comes in three layers, and they mirror how human memory 
 - Building a memory system for the CLI agent from Chapter 9
 
 ### Related Chapters
-- **Ch 6 (Chat Interface)** -- conversation history is the foundation of short-term memory
-- **Ch 9 (The Agent Loop)** -- the loop's messages array IS short-term memory
-- **Ch 15 (RAG Pipeline)** -- RAG is external memory for knowledge retrieval
-- **Ch 28 (KAIROS Memory)** -- Claude Code's 3-layer memory system in detail
-- **Ch 50 (Production Memory)** -- advanced memory strategies at scale
+- **Ch 6 (Chat Interface)** — conversation history is the foundation of short-term memory
+- **Ch 9 (The Agent Loop)** — the loop's messages array IS short-term memory
+- **Ch 15 (RAG Pipeline)** — RAG is external memory for knowledge retrieval
+- **Ch 28 (Memory Systems: KAIROS & Beyond)** — Claude Code's 3-layer memory system in detail
+- **Ch 50 (Advanced Context Strategies)** — advanced memory and context strategies at scale
 
 ---
 

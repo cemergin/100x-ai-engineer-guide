@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 58
   TITLE: Multi-Agent Orchestration
-  PART: XII — AI Platform Engineering
+  PART: 12 — AI Platform Engineering
   PHASE: 2 — Become an Expert
   PREREQS: Ch 9 (agent loop), Ch 13 (agent patterns/frameworks), Ch 32 (multi-agent coordination internals)
   KEY_TOPICS: multi-agent systems, parent-child spawning, peer-to-peer agents, coordinator pattern, council pattern, parallel execution, sequential pipelines, error handling, token budgets, shared memory, message passing
@@ -12,7 +12,7 @@
 
 # Chapter 58: Multi-Agent Orchestration
 
-> **Part XII — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 9, Ch 13, Ch 32 | Difficulty: Advanced | Language: TypeScript + Python
+> **Part 12 — AI Platform Engineering** | Phase 2: Become an Expert | Prerequisites: Ch 9, Ch 13, Ch 32 | Difficulty: Advanced | Language: TypeScript + Python
 
 In Chapter 9 you built a single agent loop: prompt, call LLM, execute tool, append result, repeat. In Chapter 32 you studied how Claude Code coordinates multiple agents internally -- coordinator mode, tick loops, background workers. Now you build multi-agent systems yourself. Not toy examples. Production orchestration where agents spawn agents, where a council of models debates a decision, where a fleet of workers processes tasks in parallel, and where the whole thing handles failures gracefully.
 
@@ -35,6 +35,7 @@ This chapter gives you the patterns, the code, and the failure modes. By the end
 ### Related Chapters
 - **Ch 9 (The Agent Loop)** -- single agent loop; this chapter runs many in parallel
 - **Ch 13 (Agent Patterns & Frameworks)** -- ReAct, Plan-and-Execute; this chapter adds orchestration patterns
+- **Ch 23-25 (Harness Engineering)** -- spirals back: the skills, plugins, and CLAUDE.md patterns inform how agents are configured in orchestration
 - **Ch 32 (Multi-Agent Coordination)** -- how Claude Code does it internally; this chapter builds your own
 - **Ch 26 (AI-Augmented Development)** -- Stripe Minions as multi-agent delegation; this chapter generalizes the pattern
 - **Ch 49 (Cost Engineering)** -- token budgets; this chapter allocates them across fleets
@@ -2097,4 +2098,4 @@ In Chapter 59, we take this orchestration capability and package it inside an in
 
 ---
 
-*Previous: [Ch 57 — Scaling & Cost at the Infra Level](../part-11-deployment-infrastructure/57-scaling-cost-infra.md)* | *Next: [Ch 59 — Building Internal AI Tools](./59-internal-ai-tools.md)*
+*Previous: [Ch 57 -- Scaling & Cost at the Infra Level](../part-11-deployment-infrastructure/57-scaling-cost-infra.md)* | *Next: [Ch 59 -- Building Internal AI Tools](./59-internal-ai-tools.md)*

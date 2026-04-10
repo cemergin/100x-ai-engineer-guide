@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 13
   TITLE: Agent Patterns & Frameworks
-  PART: II — Agent Engineering
+  PART: 2 — Agent Engineering
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 8-12 (entire agent engineering sequence)
   KEY_TOPICS: ReAct pattern, Plan-and-Execute, Reflexion, framework comparison, LangChain, Mastra, Vercel AI SDK, Claude Agent SDK, OpenAI Agents SDK, when to use frameworks
@@ -12,7 +12,7 @@
 
 # Chapter 13: Agent Patterns & Frameworks
 
-> **Part II — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8-12 | Difficulty: Intermediate → Advanced
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 8-12 | Difficulty: Intermediate → Advanced
 
 You just built an agent from scratch. Over five chapters, you implemented tool calling (Ch 8), the agent loop (Ch 9), three layers of memory (Ch 10), human-in-the-loop approvals (Ch 11), and context window management (Ch 12). You wrote all of it yourself, in TypeScript, with no frameworks.
 
@@ -30,11 +30,11 @@ Here's my opinion up front: **start with the Vercel AI SDK or the Anthropic SDK 
 - Composing patterns: real agents use multiple patterns
 
 ### Related Chapters
-- **Ch 8-12** -- you built these concepts; now see how frameworks implement them
-- **Ch 26 (AI-Augmented Development)** -- coding agents use these patterns at scale
-- **Ch 27 (Harness Architecture)** -- production agent architectures beyond frameworks
-- **Ch 32 (Multi-Agent Coordination)** -- when one agent isn't enough
-- **Ch 58 (Multi-Agent Orchestration)** -- enterprise-scale agent coordination
+- **Ch 8-12** — you built these concepts; now see how frameworks implement them
+- **Ch 26 (AI-Augmented Development)** — coding agents use these patterns at scale
+- **Ch 27 (Harness Architecture)** — production agent architectures beyond frameworks
+- **Ch 32 (Multi-Agent Coordination)** — when one agent isn't enough
+- **Ch 58 (Multi-Agent Orchestration)** — enterprise-scale agent coordination
 
 ---
 

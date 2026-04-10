@@ -49,7 +49,7 @@ This spiral follows the lifecycle of a production AI incident. First, you secure
 Part 4 (Evals & Quality — "does it work?")
   │
   └──> Part 10 (you are here — "does it work in production, at scale, safely?")
-         Ch 48 spirals approvals from Ch 11, permissions from Ch 30
+         Ch 48 spirals approvals from Ch 11, permissions from Ch 30, evals from Ch 18-20
          Ch 49 spirals tokens from Ch 0, telemetry from Ch 22, compaction from Ch 29
          Ch 50 spirals basic context from Ch 12, KAIROS from Ch 28, internals from Ch 29
          Ch 51 spirals eval-driven dev from Ch 21, telemetry from Ch 22

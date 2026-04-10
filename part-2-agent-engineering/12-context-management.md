@@ -1,7 +1,7 @@
 <!--
   CHAPTER: 12
   TITLE: Context Window Management
-  PART: II — Agent Engineering
+  PART: 2 — Agent Engineering
   PHASE: 1 — Get Dangerous
   PREREQS: Ch 0 (context windows, tokens), Ch 9 (agent loop), Ch 10 (memory vs context)
   KEY_TOPICS: token counting, context window budget, compaction, sliding window, sub-agent delegation, summarization
@@ -12,7 +12,7 @@
 
 # Chapter 12: Context Window Management
 
-> **Part II — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 0, Ch 9, Ch 10 | Difficulty: Intermediate → Advanced
+> **Part 2 — Agent Engineering** | Phase 1: Get Dangerous | Prerequisites: Ch 0, Ch 9, Ch 10 | Difficulty: Intermediate → Advanced
 
 Here's a truth that bites every agent builder eventually: your agent works beautifully for three tool calls, then falls apart on the twentieth. The responses get vague, the tool calls get repetitive, and eventually you hit an error: context window exceeded. Or worse, the agent quietly degrades -- it "forgets" what it read earlier because the important information is buried under pages of tool results.
 
@@ -30,12 +30,13 @@ This chapter is about managing that budget. Token counting, compaction strategie
 - Monitoring and alerting on context usage
 
 ### Related Chapters
-- **Ch 0 (How LLMs Work)** -- context windows, tokens, and why they cost money
-- **Ch 9 (The Agent Loop)** -- the loop fills the context window with each iteration
-- **Ch 10 (Agent Memory)** -- memory vs context: the fundamental trade-off
-- **Ch 29 (Context Window Internals)** -- how Claude Code manages context at scale
-- **Ch 49 (Cost Engineering)** -- context management as a cost optimization lever
-- **Ch 50 (Advanced Context Strategies)** -- recursive compaction, tiered memory
+- **Ch 0 (How LLMs Work)** — context windows, tokens, and why they cost money
+- **Ch 6 (Building a Chat Interface)** — spirals back: conversation history filling the context window
+- **Ch 9 (The Agent Loop)** — the loop fills the context window with each iteration
+- **Ch 10 (Agent Memory)** — memory vs context: the fundamental trade-off
+- **Ch 29 (Context Window Internals)** — spirals forward: how Claude Code manages context at scale
+- **Ch 49 (Cost Engineering)** — spirals forward: context management as a cost optimization lever
+- **Ch 50 (Advanced Context Strategies)** — spirals forward: recursive compaction, tiered memory
 
 ---
 

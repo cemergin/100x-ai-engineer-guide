@@ -20,30 +20,30 @@ This is the workflow that separates professional AI engineering from prompt-and-
 
 ### In This Chapter
 
-1. The assessment loop
-2. Using assessments to improve prompts
+1. The eval loop
+2. Using evals to improve prompts
 3. The Ralph pattern
 4. Experiment naming and tracking
-5. Analyzing assessment results
+5. Analyzing eval results
 6. The eval-driven development workflow
 
 ### Related Chapters
 
-- **Ch 19-20 (Single & Multi-Turn Evals)** — The assessment tools we're putting to work.
-- **Ch 4 (Prompt Engineering)** — Iterate prompts via assessment scores.
-- **Ch 45 (Fine-Tuning with LoRA)** — Assess before/after fine-tuning.
-- **Ch 51 (Production Eval Pipelines)** — Continuous assessment in production.
+- **Ch 19-20 (Single & Multi-Turn Evals)** — The eval tools we're putting to work.
+- **Ch 4 (Prompt Engineering)** — Iterate prompts via eval scores.
+- **Ch 45 (Fine-Tuning with LoRA)** — Eval before/after fine-tuning.
+- **Ch 51 (Production Eval Pipelines)** — Continuous eval in production.
 
 ---
 
-## 1. The Assessment Loop
+## 1. The Eval Loop
 
 ### 1.1 The Core Loop
 
-Every assessment-driven improvement follows this cycle:
+Every eval-driven improvement follows this cycle:
 
 ```
-Write Assessment → Run → Analyze Failures → Hypothesize → Change → Re-run → Compare
+Write Eval → Run → Analyze Failures → Hypothesize → Change → Re-run → Compare
 ```
 
 ```typescript
@@ -255,7 +255,7 @@ iteratePrompt();
 
 ---
 
-## 2. Using Assessments to Improve Prompts
+## 2. Using Evals to Improve Prompts
 
 ### 2.1 The Failure Analysis Pattern
 
@@ -631,7 +631,7 @@ class ExperimentStore {
 
 ---
 
-## 5. Analyzing Assessment Results
+## 5. Analyzing Eval Results
 
 ### 5.1 Statistical Analysis
 

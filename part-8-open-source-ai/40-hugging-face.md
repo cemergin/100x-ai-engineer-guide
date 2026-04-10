@@ -31,6 +31,7 @@ This chapter gets you from zero to running models locally. By the end, you will 
 
 ### Related Chapters
 - **Ch 3 (Your First LLM Call)** — spirals from API calls to local inference
+- **Ch 14 (Semantic Search)** — spirals back: local models can power the retrieval pipeline you built
 - **Ch 38 (Transformers & Attention)** — these models ARE transformers; now you run them
 - **Ch 41 (Image Generation)** — extends local inference to images
 - **Ch 42 (Sentence Transformers)** — extends local inference to embeddings

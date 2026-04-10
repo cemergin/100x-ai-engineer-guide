@@ -41,7 +41,9 @@ This chapter covers the infrastructure patterns for these situations: GPU vs CPU
 - Edge deployment: running small models closer to users
 
 ### Related Chapters
+- **Ch 22 (Telemetry & Tracing)** -- spirals back: infrastructure metrics feed the telemetry pipeline
 - **Ch 47 (Quantization & Deployment)** -- quantized models you serve here
+- **Ch 48 (AI Security & Guardrails)** -- spirals back: scaling must not bypass security controls
 - **Ch 49 (Cost Engineering)** -- application-level cost; now infrastructure-level
 - **Ch 53 (Deploying LLM Applications)** -- the deployment targets you scale here
 - **Ch 54 (API Gateway)** -- gateway-level controls that enable scaling patterns

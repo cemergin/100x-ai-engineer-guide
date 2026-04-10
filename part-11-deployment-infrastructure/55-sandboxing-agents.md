@@ -42,6 +42,7 @@ This chapter teaches you how to build that infrastructure. The centerpiece is th
 
 ### Related Chapters
 - **Ch 9 (The Agent Loop)** -- the agent pattern you are now isolating
+- **Ch 22 (Telemetry & Tracing)** -- spirals back: sandbox audit logs feed the telemetry pipeline
 - **Ch 30 (Tool Execution & Permissions)** -- application-level permissions; now infrastructure-level
 - **Ch 48 (AI Security & Guardrails)** -- the lethal trifecta; now prevent it with infrastructure
 - **Ch 53 (Deploying LLM Applications)** -- you deployed the app; now isolate the dangerous parts

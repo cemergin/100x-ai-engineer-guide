@@ -89,4 +89,4 @@ Expect about 3-4 hours to read all five chapters and build the code examples. By
 
 ---
 
-*Previous: [Part 3 -- RAG & Knowledge Systems](../part-3-rag-knowledge/)* | *Next: [Part 5 -- Harness Engineering](../part-5-harness-engineering/)*
+*Previous: [Part 3 — RAG & Knowledge Systems](../part-3-rag-knowledge/)* | *Next: [Part 5 — Harness Engineering](../part-5-harness-engineering/)*

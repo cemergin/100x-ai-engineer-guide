@@ -35,7 +35,7 @@ Each technique is independently useful. Stack them together and your RAG pipelin
 - **Ch 14-16** — Each technique here improves what you built in those chapters.
 - **Ch 42 (Embeddings & Sentence Transformers)** — Phase 2: generate better embeddings for better retrieval.
 - **Ch 50 (Advanced Context Strategies)** — Phase 2: more sophisticated context management.
-- **Ch 19 (Single-Turn Assessments)** — Measure whether these techniques actually improve your results.
+- **Ch 19 (Single-Turn Evals)** — Measure whether these techniques actually improve your results.
 
 ---
 

@@ -45,6 +45,14 @@ Part 0 (you are here)
          Ch 43 deep-dives model selection from Ch 2
 ```
 
+## The Within-Part Spiral
+
+```
+Ch 0: How LLMs Actually Work (what happens inside the API call)
+  └──→ Ch 1: Embeddings & Similarity (how meaning becomes math)
+        └──→ Ch 2: The AI Landscape (who the players are, what to use)
+```
+
 ## Reading Time
 
 Expect about 45-60 minutes to read all three chapters. No code to run — that starts in Part 1.

@@ -38,7 +38,6 @@ A comprehensive, opinionated mega-guide for the engineer who gets dropped into a
 ├── part-12-ai-platform/              ← Multi-agent, internal tools, skills marketplaces, org enablement
 
 ├── appendices/                       ← Glossary, resources, cheat sheet
-├── course/                           ← Hands-on modules building a real AI agent
 └── README.md                         ← You are here
 ```
 
@@ -73,7 +72,7 @@ Example — how **embeddings** spiral through the guide:
 Ch 1  (concept)      → "Embeddings are vectors that capture semantic meaning"
 Ch 14 (use for search) → Build semantic search with vector stores
 Ch 19 (eval retrieval) → Score how well your retrieval works
-Ch 35 (understand math) → Neural nets produce embeddings via learned weights
+Ch 36 (understand math) → Neural nets produce embeddings via learned weights
 Ch 42 (generate own)   → Run Sentence Transformers, choose embedding models
 Ch 44 (vs fine-tuning)  → When to retrieve knowledge vs bake it into weights
 ```
@@ -273,7 +272,7 @@ AGENT LOOP:     Ch 9 (build) → Ch 13 (frameworks) → Ch 23 (Claude Code)
                 → Ch 27 (production architecture) → Ch 32 (multi-agent)
                 → Ch 58 (orchestration)
 
-EVALS:          Ch 18-22 (learn) → Ch 25 (CI) → Ch 45 (fine-tuning)
+EVALS:          Ch 18-22 (learn) → Ch 25 (skill evals) → Ch 45 (fine-tuning)
                 → Ch 46 (datasets) → Ch 51 (production) → Ch 61 (self-reinforcing)
 
 TOOLS/MCP:      Ch 8 (calling) → Ch 24 (MCP) → Ch 25 (skills)
@@ -286,9 +285,9 @@ MEMORY:         Ch 10 (concepts) → Ch 23 (CLAUDE.md) → Ch 28 (KAIROS)
                 → Ch 50 (production) → Ch 59 (platform tools)
 
 SECURITY:       Ch 11 (approvals) → Ch 30 (permissions) → Ch 48 (guardrails)
-                → Ch 55 (sandboxing) → Ch 62 (governance)
+                → Ch 55 (sandboxing) → Ch 62 (adoption governance)
 
-DEPLOYMENT:     Ch 3 (API call) → Ch 6 (chat UI) → Ch 27 (how tools deploy)
+DEPLOYMENT:     Ch 3 (API call) → Ch 6 (chat UI) → Ch 27 (harness architecture)
                 → Ch 53 (deploy apps) → Ch 55 (isolate agents) → Ch 56 (CI/CD)
 ```
 
