@@ -30,6 +30,7 @@ This chapter takes the eval concepts from Part 4 and turns them into production 
 - Alerting on eval degradation
 
 ### Related Chapters
+- **Ch 4 (Prompt Engineering)** — spirals back: prompt management at scale (registries, versioning) feeds into eval-driven prompt iteration
 - **Ch 18-20 (Evals & Quality)** — spirals back: single-turn and multi-turn eval foundations
 - **Ch 21 (Eval-Driven Development)** — spirals back: the Ralph loop (write eval, run, analyze, improve)
 - **Ch 22 (Telemetry & Tracing)** — spirals back: telemetry data feeds online evals

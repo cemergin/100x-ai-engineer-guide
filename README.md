@@ -126,9 +126,9 @@ Ch 57 (infrastructure)  → Self-host vs API break-even math, GPU cost optimizat
 | Ch | Title | Difficulty | What You'll Learn |
 |----|-------|-----------|-------------------|
 | 3 | [Your First LLM Call](./part-1-building-with-llms/03-first-llm-call.md) | Beginner | SDK setup, chat completions, system prompts, streaming, error handling |
-| 4 | [Prompt Engineering That Works](./part-1-building-with-llms/04-prompt-engineering.md) | Beg→Inter | System prompts, few-shot, chain-of-thought, templates, versioning |
+| 4 | [Prompt Engineering That Works](./part-1-building-with-llms/04-prompt-engineering.md) | Beg→Inter | System prompts, few-shot, chain-of-thought, templates, versioning, prompt management at scale |
 | 5 | [Structured Output](./part-1-building-with-llms/05-structured-output.md) | Intermediate | JSON mode, Zod schemas, response_format, type-safe LLM responses |
-| 6 | [Building a Chat Interface](./part-1-building-with-llms/06-chat-interface.md) | Intermediate | History management, streaming to UI, Vercel AI SDK |
+| 6 | [Building a Chat Interface](./part-1-building-with-llms/06-chat-interface.md) | Intermediate | History management, streaming to UI, Vercel AI SDK, AI UX patterns |
 | 7 | [Multimodal AI](./part-1-building-with-llms/07-multimodal.md) | Intermediate | Vision, image generation, audio, multi-input |
 
 ### [Part 2 — Agent Engineering](./part-2-agent-engineering/)
@@ -148,7 +148,7 @@ Ch 57 (infrastructure)  → Self-host vs API break-even math, GPU cost optimizat
 
 | Ch | Title | Difficulty | What You'll Learn |
 |----|-------|-----------|-------------------|
-| 14 | [Semantic Search](./part-3-rag-knowledge/14-semantic-search.md) | Intermediate | Embeddings in code, vector stores, similarity search, scoring |
+| 14 | [Semantic Search](./part-3-rag-knowledge/14-semantic-search.md) | Intermediate | Embeddings in code, vector stores (Pinecone, Upstash, pgvector), similarity search, NL-to-SQL, scoring |
 | 15 | [The RAG Pipeline](./part-3-rag-knowledge/15-rag-pipeline.md) | Intermediate | Document loading, chunking, embedding, storage, retrieval, reranking |
 | 16 | [Document QA Systems](./part-3-rag-knowledge/16-document-qa.md) | Intermediate | PDF/YouTube/web loaders, source attribution, retrieval + generation |
 | 17 | [Advanced Retrieval](./part-3-rag-knowledge/17-advanced-retrieval.md) | Inter→Adv | Hybrid search, reranking, HyDE, query expansion, multi-index |
@@ -171,7 +171,7 @@ Ch 57 (infrastructure)  → Self-host vs API break-even math, GPU cost optimizat
 |----|-------|-----------|-------------------|
 | 23 | [Claude Code Mastery](./part-5-harness-engineering/23-claude-code-mastery.md) | Beg→Adv | Skills, plugins, hooks, CLAUDE.md, plan mode, worktrees, permissions |
 | 24 | [MCP Servers & Integrations](./part-5-harness-engineering/24-mcp-servers.md) | Intermediate | MCP protocol, building servers, connecting tools |
-| 25 | [Skills, Plugins & Automation](./part-5-harness-engineering/25-skills-plugins.md) | Inter→Adv | Writing skills, building plugins, cron jobs, scheduled agents |
+| 25 | [Skills, Plugins & Automation](./part-5-harness-engineering/25-skills-plugins.md) | Inter→Adv | Writing skills, building plugins, cron jobs, scheduled agents, event-driven workflows |
 | 26 | [AI-Augmented Development](./part-5-harness-engineering/26-ai-augmented-dev.md) | Inter→Adv | Coding agents, multi-agent delegation, Stripe Minions, self-reinforcing loops |
 
 ---
@@ -243,7 +243,7 @@ Ch 57 (infrastructure)  → Self-host vs API break-even math, GPU cost optimizat
 |----|-------|-----------|-------------------|
 | 53 | [Deploying LLM Applications](./part-11-deployment-infrastructure/53-deploying-llm-apps.md) | Intermediate | Serverless vs dedicated, Vercel Functions, Docker, environment management |
 | 54 | [API Gateway & Provider Management](./part-11-deployment-infrastructure/54-api-gateway.md) | Inter→Adv | Rate limiting, failover, Vercel AI Gateway, caching, secrets |
-| 55 | [Sandboxing & Isolating Agents](./part-11-deployment-infrastructure/55-sandboxing-agents.md) | Advanced | The OpenClaw pattern, VPC isolation, proxy restrictions, file system isolation |
+| 55 | [Sandboxing & Isolating Agents](./part-11-deployment-infrastructure/55-sandboxing-agents.md) | Advanced | The OpenClaw pattern, VPC isolation, proxy restrictions, file system isolation, code execution sandboxing |
 | 56 | [CI/CD for AI Applications](./part-11-deployment-infrastructure/56-cicd-for-ai.md) | Inter→Adv | Evals in CI, canary deployments, A/B testing, feature flags for AI |
 | 57 | [Scaling & Cost at the Infra Level](./part-11-deployment-infrastructure/57-scaling-cost-infra.md) | Advanced | GPU vs CPU, serverless inference, batching, model caching, break-even math |
 

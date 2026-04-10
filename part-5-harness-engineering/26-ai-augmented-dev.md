@@ -39,6 +39,7 @@ This chapter maps the landscape of AI-augmented development as it exists today. 
 | ↩ spirals back | Ch 9: The Agent Loop | Every coding agent is built on this loop |
 | ↩ spirals back | Ch 21: Eval-Driven Dev | Self-reinforcing loops use evals as feedback |
 | ↩ spirals back | Ch 23: Claude Code | The harness these agents run in |
+| ↩ spirals back | Ch 25: Skills, Plugins & Automation | Event-driven workflows and scheduled agents power the automation layer |
 | ↪ spirals forward | Ch 32: Multi-Agent Coordination | Coordination internals at depth |
 | ↪ spirals forward | Ch 58: Multi-Agent Orchestration | Platform-scale orchestration |
 | ↪ spirals forward | Ch 61: Self-Reinforcing Systems | Feedback loops at expert depth |
