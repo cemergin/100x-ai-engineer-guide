@@ -1452,6 +1452,155 @@ If you want to build your own Claude Code-quality harness:
 
 ---
 
+## Build It: A Minimal Agent Harness in 80 Lines
+
+You have now seen the architecture of production agent harnesses. But here is the secret: the core pattern is buildable in a single file. The following script implements the complete agent loop -- prompt, LLM call, tool execution, permission check, streaming output -- in roughly 80 lines of Python. It works with any OpenAI-compatible API (OpenAI, Anthropic via proxy, Ollama, LiteLLM, OpenRouter). Copy this file, run it, and you have a working agent. Then add complexity one piece at a time, just like the open-source reimplementations did.
+
+```bash
+pip install openai
+```
+
+```python
+# Minimal agent harness — inspired by nano-claude-code and claw-code-agent
+# Usage: OPENAI_API_KEY=sk-... python harness.py
+#   (or set OPENAI_BASE_URL for Ollama, LiteLLM, OpenRouter, etc.)
+
+import json, os, subprocess, sys
+from typing import Callable
+from openai import OpenAI
+
+# --- Tool Registry -----------------------------------------------------------
+
+TOOLS: dict[str, dict] = {}  # name -> {description, function, schema}
+
+def register_tool(name: str, description: str, params: dict, fn: Callable):
+    """Register a tool the agent can call."""
+    TOOLS[name] = {
+        "function": fn,
+        "definition": {
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": description,
+                "parameters": {"type": "object", "properties": params, "required": list(params)},
+            },
+        },
+    }
+
+# --- Built-in Tools ----------------------------------------------------------
+
+def read_file(path: str) -> str:
+    try:
+        return open(path).read()[:8000]  # truncate large files
+    except Exception as e:
+        return f"Error: {e}"
+
+def write_file(path: str, content: str) -> str:
+    open(path, "w").write(content)
+    return f"Wrote {len(content)} chars to {path}"
+
+def run_shell(command: str) -> str:
+    # --- Permission Check: ask before executing shell commands ---
+    print(f"\n  [PERMISSION] Agent wants to run: {command}")
+    answer = input("  Allow? (y/n): ").strip().lower()
+    if answer != "y":
+        return "Permission denied by user."
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
+    return (result.stdout + result.stderr)[:8000]
+
+register_tool("read_file", "Read a file from disk",
+              {"path": {"type": "string", "description": "File path to read"}}, 
+              lambda **kw: read_file(kw["path"]))
+register_tool("write_file", "Write content to a file",
+              {"path": {"type": "string", "description": "File path"},
+               "content": {"type": "string", "description": "Content to write"}},
+              lambda **kw: write_file(kw["path"], kw["content"]))
+register_tool("run_shell", "Run a shell command (requires user approval)",
+              {"command": {"type": "string", "description": "Shell command to execute"}},
+              lambda **kw: run_shell(kw["command"]))
+
+# --- Agent Loop --------------------------------------------------------------
+
+def agent_loop(user_message: str, model: str = "gpt-4o"):
+    client = OpenAI()  # reads OPENAI_API_KEY and OPENAI_BASE_URL from env
+    messages = [
+        {"role": "system", "content": "You are a helpful coding agent. Use tools to help the user."},
+        {"role": "user", "content": user_message},
+    ]
+    tool_defs = [t["definition"] for t in TOOLS.values()]
+
+    while True:
+        # --- Call the model with streaming ---
+        stream = client.chat.completions.create(
+            model=model, messages=messages, tools=tool_defs, stream=True
+        )
+        response_text = ""
+        tool_calls = []
+        current_tc = None
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta
+            # Stream text tokens as they arrive
+            if delta.content:
+                print(delta.content, end="", flush=True)
+                response_text += delta.content
+            # Accumulate tool calls
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    if tc.index is not None and tc.index >= len(tool_calls):
+                        tool_calls.append({"id": tc.id or "", "name": "", "arguments": ""})
+                    idx = tc.index if tc.index is not None else len(tool_calls) - 1
+                    if tc.function:
+                        if tc.function.name:
+                            tool_calls[idx]["name"] = tc.function.name
+                            tool_calls[idx]["id"] = tc.id or tool_calls[idx]["id"]
+                        if tc.function.arguments:
+                            tool_calls[idx]["arguments"] += tc.function.arguments
+
+        # If no tool calls, the agent is done
+        if not tool_calls:
+            print()  # newline after streamed output
+            return response_text
+
+        # Build assistant message with tool_calls
+        assistant_msg = {"role": "assistant", "content": response_text or None, "tool_calls": [
+            {"id": tc["id"], "type": "function",
+             "function": {"name": tc["name"], "arguments": tc["arguments"]}}
+            for tc in tool_calls
+        ]}
+        messages.append(assistant_msg)
+
+        # --- Execute each tool call and append results ---
+        for tc in tool_calls:
+            name, args_str = tc["name"], tc["arguments"]
+            print(f"\n  [TOOL] {name}({args_str[:80]}{'...' if len(args_str) > 80 else ''})")
+            if name in TOOLS:
+                args = json.loads(args_str)
+                result = TOOLS[name]["function"](**args)
+            else:
+                result = f"Unknown tool: {name}"
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
+
+        # Loop back: the model will see the tool results and continue
+
+if __name__ == "__main__":
+    print("Minimal Agent Harness (Ctrl+C to quit)")
+    print("=" * 40)
+    while True:
+        try:
+            user_input = input("\nYou: ").strip()
+            if not user_input:
+                continue
+            agent_loop(user_input)
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+```
+
+The key architectural insights are visible even in this minimal version: the tool registry decouples tool definition from the loop, the permission check gates dangerous operations, and the while-True loop with tool result appending is the exact same pattern that powers Claude Code. The only difference between this and a production harness is how many layers of sophistication you add around each step.
+
+---
+
 ## 12. Key Takeaways
 
 1. **The harness is the product.** The model is a commodity API call. The harness -- context assembly, tool execution, permission management, memory, rendering -- is what makes the product useful.

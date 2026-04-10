@@ -1019,6 +1019,201 @@ Design for the invisible success case, and build good error recovery for the vis
 
 ---
 
+## Build It: A KAIROS-Style Memory System in 70 Lines
+
+The three-layer memory architecture sounds complex, but the core idea is file-based and buildable in a single script. The implementation below gives you an index layer (always loaded, one-line summaries), topic files (loaded on demand when relevant), and a transcript layer (grep-only, never fully loaded). It also includes the AutoDream consolidation pattern -- a function that reads all topic files, deduplicates entries, merges related ones, and writes them back. No database, no embeddings, no external services. Just files.
+
+```bash
+pip install openai
+```
+
+```python
+# KAIROS-style 3-layer memory system — file-based, no database needed
+# Usage: python memory.py
+
+import os, json, re
+from pathlib import Path
+from typing import Optional
+from openai import OpenAI
+
+MEMORY_DIR = Path("./agent_memory")
+INDEX_FILE = MEMORY_DIR / "index.jsonl"       # Layer 1: always loaded (~150 chars/entry)
+TOPICS_DIR = MEMORY_DIR / "topics"             # Layer 2: loaded on demand
+TRANSCRIPTS_DIR = MEMORY_DIR / "transcripts"   # Layer 3: grep-only, never fully loaded
+
+def init_memory():
+    """Create memory directory structure."""
+    for d in [MEMORY_DIR, TOPICS_DIR, TRANSCRIPTS_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+    if not INDEX_FILE.exists():
+        INDEX_FILE.touch()
+
+# --- Layer 1: Index (always loaded) ------------------------------------------
+
+def load_index() -> list[dict]:
+    """Load the full index into memory. Each entry is {topic, summary}."""
+    if not INDEX_FILE.exists():
+        return []
+    entries = []
+    for line in INDEX_FILE.read_text().strip().split("\n"):
+        if line.strip():
+            entries.append(json.loads(line))
+    return entries
+
+def add_to_index(topic: str, summary: str):
+    """Append a one-line summary to the index. Keep summaries under 150 chars."""
+    summary = summary[:150]
+    with open(INDEX_FILE, "a") as f:
+        f.write(json.dumps({"topic": topic, "summary": summary}) + "\n")
+
+# --- Layer 2: Topic Files (loaded on demand) ----------------------------------
+
+def write_topic(topic: str, content: str):
+    """Write to a topic file. Call this FIRST, then update the index."""
+    safe_name = re.sub(r"[^a-z0-9_-]", "_", topic.lower())
+    topic_file = TOPICS_DIR / f"{safe_name}.md"
+    # Append to existing topic file
+    with open(topic_file, "a") as f:
+        f.write(f"\n---\n{content}\n")
+    return topic_file
+
+def load_topic(topic: str) -> Optional[str]:
+    """Load a topic file's full content."""
+    safe_name = re.sub(r"[^a-z0-9_-]", "_", topic.lower())
+    topic_file = TOPICS_DIR / f"{safe_name}.md"
+    if topic_file.exists():
+        return topic_file.read_text()
+    return None
+
+# --- Layer 3: Transcripts (grep-only) ----------------------------------------
+
+def save_transcript(session_id: str, messages: list[dict]):
+    """Save a full session transcript. Never loaded whole -- grep only."""
+    transcript_file = TRANSCRIPTS_DIR / f"{session_id}.jsonl"
+    with open(transcript_file, "w") as f:
+        for msg in messages:
+            f.write(json.dumps({"role": msg["role"], "content": msg.get("content", "")[:500]}) + "\n")
+
+def grep_transcripts(query: str) -> list[str]:
+    """Search transcripts for a keyword. Returns matching lines."""
+    matches = []
+    for tf in TRANSCRIPTS_DIR.glob("*.jsonl"):
+        for line in tf.read_text().split("\n"):
+            if query.lower() in line.lower():
+                matches.append(f"[{tf.stem}] {line[:200]}")
+                if len(matches) >= 20:
+                    return matches
+    return matches
+
+# --- Memory Write Discipline: topic first, index second -----------------------
+
+def remember(topic: str, detail: str, summary: str):
+    """The correct write order: topic file first, then index."""
+    write_topic(topic, detail)       # Step 1: durable detail
+    add_to_index(topic, summary)     # Step 2: index pointer
+
+# --- Memory Recall: search index, load matching topics ------------------------
+
+def recall(query: str) -> str:
+    """Search the index, load matching topic files, return combined context."""
+    index = load_index()
+    query_lower = query.lower()
+    # Find matching index entries
+    matches = [e for e in index if query_lower in e["summary"].lower() or query_lower in e["topic"].lower()]
+    if not matches:
+        return f"No memories found for '{query}'."
+    # Load the topic files for matches (deduplicate topics)
+    seen_topics = set()
+    context_parts = []
+    for entry in matches:
+        if entry["topic"] not in seen_topics:
+            seen_topics.add(entry["topic"])
+            content = load_topic(entry["topic"])
+            if content:
+                context_parts.append(f"## {entry['topic']}\n{content}")
+    return "\n\n".join(context_parts) if context_parts else "Index matched but topic files missing."
+
+# --- AutoDream: Background Consolidation --------------------------------------
+
+def autodream():
+    """The AutoDream pattern: consolidate, deduplicate, and merge topic files.
+    In production, this runs during idle periods (like sleep)."""
+    client = OpenAI()
+    topic_files = list(TOPICS_DIR.glob("*.md"))
+    if not topic_files:
+        print("Nothing to consolidate.")
+        return
+
+    for topic_file in topic_files:
+        content = topic_file.read_text()
+        sections = [s.strip() for s in content.split("---") if s.strip()]
+        if len(sections) <= 1:
+            continue  # nothing to consolidate
+
+        print(f"Consolidating {topic_file.name} ({len(sections)} entries)...")
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # cheap model for consolidation
+            messages=[
+                {"role": "system", "content": (
+                    "You are a memory consolidation agent. Given multiple memory entries "
+                    "about a topic, merge duplicates, remove stale info, and produce a "
+                    "clean consolidated version. Keep all unique facts. Be concise."
+                )},
+                {"role": "user", "content": f"Consolidate these entries:\n\n{content}"},
+            ],
+        )
+        consolidated = response.choices[0].message.content
+        topic_file.write_text(consolidated)
+        print(f"  -> Consolidated to {len(consolidated)} chars")
+
+    # Rebuild index from consolidated topic files
+    INDEX_FILE.write_text("")  # clear
+    for topic_file in topic_files:
+        topic_name = topic_file.stem.replace("_", " ")
+        content = topic_file.read_text()
+        # Use first line as summary
+        first_line = content.split("\n")[0][:150]
+        add_to_index(topic_name, first_line)
+    print("Index rebuilt.")
+
+
+if __name__ == "__main__":
+    init_memory()
+
+    # --- Demo: store some memories ---
+    remember("project-setup", 
+             "This project uses Next.js 15 with App Router. Tests are in __tests__/ dirs. "
+             "We use pnpm, not npm. CI runs on GitHub Actions.",
+             "Next.js 15 + App Router, pnpm, GitHub Actions CI")
+
+    remember("api-conventions",
+             "All API routes return {data, error} shape. Auth uses JWT in httpOnly cookies. "
+             "Rate limiting is 100 req/min per user.",
+             "API returns {data,error}, JWT auth, 100 req/min limit")
+
+    remember("project-setup",
+             "Database is Postgres via Prisma. Migrations run on deploy. "
+             "Seed data is in prisma/seed.ts.",
+             "Postgres + Prisma, migrations on deploy")
+
+    # --- Demo: recall memories ---
+    print("=== Recall 'project' ===")
+    print(recall("project"))
+    print()
+    print("=== Recall 'api' ===")
+    print(recall("api"))
+    print()
+
+    # --- Demo: consolidation ---
+    print("=== AutoDream Consolidation ===")
+    # autodream()  # uncomment to run (requires OPENAI_API_KEY)
+    print("(uncomment autodream() and set OPENAI_API_KEY to run consolidation)")
+```
+
+Notice the write discipline: always write the topic file first, then update the index. If the process crashes between the two operations, you lose an index entry but never lose data. This is the same pattern KAIROS uses. The recall function mirrors the two-step lookup: scan the cheap index, then load the expensive topic files only for matches.
+
+---
+
 ## 11. Key Takeaways
 
 1. **KAIROS is three layers:** session memory (conversation), project memory (CLAUDE.md), persistent memory (long-term files). Each layer has different storage, lifetime, and management characteristics.
